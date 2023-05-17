@@ -2219,7 +2219,7 @@ class Terrain(object):
 
 def uv_to_panda2(page, pal, u, v):
     u = (u / 256. + pal) / 17
-    v = 1.0 - (page + v / 256.0) / 4.0
+    v = (page + v / 256.0) / 4.0
     return (u, v)
 
 class Map(object):
@@ -2515,7 +2515,7 @@ def load(context,
                 
                 if hasattr(v, 'normal'):
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
-                    verts_tex.append((texcoord[0], 1.-texcoord[1]))
+                    verts_tex.append(texcoord)
                     verts_nor.append((v.normal.X, v.normal.Y, v.normal.Z))
                 else:
                     # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
