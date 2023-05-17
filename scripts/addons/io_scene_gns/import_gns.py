@@ -2295,10 +2295,10 @@ class Map(object):
             colors.append([])
             for srcc in palette:
                 dstc = (
-                    int((srcc[0]/31.)*255.),    # [0,255]
-                    int((srcc[1]/31.)*255.),
-                    int((srcc[2]/31.)*255.),
-                    srcc[3]*255
+                    srcc[0]/31.,    # [0,255]
+                    srcc[1]/31.,
+                    srcc[2]/31.,
+                    srcc[3]
                 )
                 colors[i].append(dstc)
 
@@ -2314,10 +2314,10 @@ class Map(object):
                     c = colors[i][srcrow[x]]
                     color = (c[0], c[1], c[2], c[3])
                     dstrow.append(c)
-            # last append greyscale
+            # last append greyscale ... why?
             for x in range(256):
-                c = srcrow[x]*17        #[0,255]
-                color = (c,c,c,255)
+                c = srcrow[x]/15.        #[0,255]
+                color = (c,c,c,1)
                 dstrow.append(color)
             self.textureRGBAData.append(dstrow)
             assert len(dstrow) == self.textureWidth
@@ -2483,7 +2483,7 @@ def load(context,
         # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
         image = bpy.data.images.new('DefaultGNSTex', width=map.textureWidth, height=map.textureHeight)
         image.pixels = [
-            ch / 255.
+            ch
             for row in map.textureRGBAData
             for color in row
             for ch in color           
@@ -2520,6 +2520,7 @@ def load(context,
                 else:
                     # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
                     #  Error: Array length mismatch (got 6615, expected more)
+                    # should I put the non-texcoord/normal'd faces in a separate mesh?
                     verts_tex.append((0,0))
                     verts_nor.append((0,0,0))
             
