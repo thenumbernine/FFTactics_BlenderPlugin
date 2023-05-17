@@ -2418,121 +2418,6 @@ class Map(object):
             return [poly.A, poly.C, poly.D, poly.B]        # cw => ccw and tristrip -> quad
         return [poly.A, poly.C, poly.B]                    # cw front-face => ccw front-face
 
-    def perp2d(self, v):
-        return (-v[1], v[0])
-
-    def scale(self, a, b):
-        return (a[0] * b, a[1] * b)
-
-    def sub(self, a, b):
-        return (a[0] - b[0], a[1] - b[1])
-
-    def dot(self, a, b):
-        return a[0] * b[0] + a[1] * b[1]
-
-    def testSeparating(self, v0, n, pts):
-        side = self.dot(n, self.sub(pts[0], v0)) > 0
-        for i in range(1,len(pts)):
-            vside = self.dot(n, self.sub(pts[i], v0)) > 0
-            if (vside != side):
-                return False
-        return True
-
-    def testSeparatingObjects2(self, pts, opts):
-        m = len(pts)
-        center = (0,0)
-        for p in pts:
-            center = (center[0] + p[0], center[1] + p[1])
-        center = (center[0] / m, center[1] / m)
-        for i in range(m):
-            v1 = pts[i]
-            v2 = pts[(i+1)%m]
-            vavg = self.scale((v1[0] + v2[0], v1[1] + v2[1]), .5)
-            n = self.perp2d(self.sub(v2, v1))
-            if self.testSeparating(self.sub(v1, self.scale(n, 1e-3)), n, opts):
-                return True
-        return False
-
-    def testSeparatingObjects(self, V1, V2):
-        return self.testSeparatingObjects2(V1, V2) or self.testSeparatingObjects2(V1, V2)
-
-    # TODO don't detect overlapping tris ...
-    # detect if any tris cover the same region for different palettes
-    def detectOverlappingTriangles(self):
-        for i1 in range(len(self.polygons)-1):
-            s1 = self.polygons[i1]
-            if hasattr(s1.A, 'normal'):
-                V1 = []
-                for v in self.vertexesForPoly(s1):
-                    V1.append((v.texcoord.U, v.texcoord.V))
-                for i2 in range(i1+1,len(self.polygons)):
-                    s2 = self.polygons[i2]
-                    if hasattr(s2.A, 'normal'):
-                        V2 = []
-                        for v in self.vertexesForPoly(s2):
-                            V2.append((v.texcoord.U, v.texcoord.V))
-                        for j in range(len(V1)):
-                            # handedness in uv space isn't guaranteed so ...
-                            # I could deduce it from the cross of the texcoords
-                            if not self.testSeparatingObjects(V1, V2):
-                                print("overlapping tris")
-
-    def writeOBJ(self):
-        print('done reading, now writing')
-
-        vi = 1
-        vti = 1
-        xzscale = 28.
-        yscale = 24.
-        vls = []
-        vtls = []
-        vnls = []
-        fls = []
-        for s in self.polygons:
-            V = self.vertexesForPoly(s)
-            for v in V:
-                vls.append('v '+str(1.+v.point.X/xzscale)+' '+str(1.+v.point.Z/xzscale)+' '+str(-v.point.Y/yscale))
-                # if it has normals in one, it should have them in all
-                if hasattr(v, 'normal'):
-                    texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
-                    vtls.append('vt '+str(texcoord[0])+' '+str(1.-texcoord[1]))
-                    vnls.append('vn '+str(v.normal.X)+' '+str(v.normal.Y)+' '+str(v.normal.Z))
-            n = len(V)
-            if hasattr(V[0], 'normal'):
-                fls.append('f '+' '.join([str(i+vi)+'/'+str(i+vti)+'/'+str(i+vti) for i in range(n)]))
-                vti+=n
-            else:
-                fls.append('f '+' '.join([str(i+vi) for i in range(n)]))
-            vi+=n
-        texpath = prefixfn+'.png'
-        file = open(prefixfn+'.obj', 'w')
-        file.write('s 1\n')
-        file.write('g\n')
-        file.write('mtllib '+prefixfn+'.mtl\n')
-        file.write('usemtl m\n')
-        file.write('\n'.join(vls)+'\n')
-        file.write('\n'.join(vtls)+'\n')
-        file.write('\n'.join(vnls)+'\n')
-        file.write('\n'.join(fls)+'\n')
-        file.close()
-        file = open(prefixfn+'.mtl', 'w')
-        file.write('newmtl m\n')
-        file.write('Ka 0 0 0\n')
-        file.write('Kd 1 1 1\n')
-        file.write('Ks 1 1 1\n')
-        file.write('map_Kd '+texpath+'\n')
-        file.close()
-        print('done writing obj and mtl, now writing tex')
-        from PIL import Image
-        dstimg = Image.new('RGBA', (self.textureWidth,self.textureHeight))
-        dstimg.putdata([
-            c
-            for row in self.textureRGBAData
-            for c in row
-        ])
-        dstimg.save(texpath)    # ACTUALLY RGBA FINALLY
-        print('done writing tex')
-
 ################################ import_gns ################################
 
 def line_value(line_split):
@@ -2581,14 +2466,6 @@ def filenames_group_by_ext(line, ext):
 
 
 def gns_image_load(img_data, context_imagepath_map, line, DIR, recursive, relpath):
-    """
-    Mainly uses comprehensiveImageLoad
-    But we try all space-separated items from current line when file is not found with last one
-    (users keep generating/using image files with spaces in a format that does not support them, sigh...)
-    Also tries to replace '_' with ' ' for Max's exporter replaces spaces with underscores.
-    Also handle " chars (some software use those to protect filenames with spaces, see T67266... sic).
-    Also corrects img_data (in case filenames with spaces have been split up in multiple entries, see T72148).
-    """
     filepath_parts = line.split(b' ')
 
     start = line.find(b'"') + 1
@@ -3481,7 +3358,7 @@ def load(context,
         
         # get image ...
         # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-        image = bpy.data.images.new('MyImage', width=map.textureWidth, height=map.textureHeight)
+        image = bpy.data.images.new('DefaultGNSTex', width=map.textureWidth, height=map.textureHeight)
         image.pixels = [
             ch / 255.
             for row in map.textureRGBAData
@@ -3494,7 +3371,7 @@ def load(context,
 
         context_mat_wrap.base_color_texture.image = image
         context_mat_wrap.base_color_texture.texcoords = 'UV'
-    
+        context_mat_wrap.specular = 0
 
         filename = os.path.splitext((os.path.basename(filepath)))[0]
         dataname = filename
@@ -3510,15 +3387,18 @@ def load(context,
             V = map.vertexesForPoly(s)
             n = len(V)
             for v in V:
-                verts_loc.append((v.point.X/xscale, v.point.Y/yscale,v.point.Z/zscale))
+                verts_loc.append((v.point.X/xscale, -v.point.Y/yscale, -v.point.Z/zscale))
                 
                 if hasattr(v, 'normal'):
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
                     verts_tex.append((texcoord[0], 1.-texcoord[1]))
                     verts_nor.append((v.normal.X, v.normal.Y, v.normal.Z))
                 else:
+                    # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
+                    #  Error: Array length mismatch (got 6615, expected more)
                     verts_tex.append((0,0))
                     verts_nor.append((0,0,0))
+            
             # turn all polys into fans
             for i in range(1,n-1):
                 face_vert_loc_indices = []
@@ -3544,14 +3424,13 @@ def load(context,
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    ma_name,    #context_material, #are they using the same variable for the dict and name?
+                    ma_name,
                     context_smooth_group,
                     context_object_key,
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
                 )
                 faces.append(face)
      
-
             #if hasattr(V[0], 'normal'):
             vti+=n
             
