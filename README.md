@@ -1,11 +1,11 @@
-## Final Fantasy Tactics Blender Importer
+# Final Fantasy Tactics Blender Importer
 
 This is modified heavily from the JustinMarshall98 Ganesha Python version, which itself was modified from the Gomtuu Ganesha Python version.
 It was convenient that Blender plugins are written in Python.
 
 ![example](ex3.png)
 
-# Installing
+## Installing
 
 To get it working, copy the folder structure into your Blender user path.
 If you don't know where that is then follow this link:
@@ -20,12 +20,12 @@ Click the checkbox and you should now find a new option under File -> Import:
 
 ![step 2](ex2.png)
 
-# Progress
+## Progress
 
 Right now it just imports the mesh as-is.
 
 Maybe later I'll get fancy with multiple palettes and other stuff.
 
-# Sources:
+## Sources:
 
 https://github.com/JustinMarshall98/Ganesha
