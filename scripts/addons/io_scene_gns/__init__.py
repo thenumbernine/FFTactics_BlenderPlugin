@@ -35,7 +35,7 @@ from bpy_extras.io_utils import (
 )
 
 
-@orientation_helper(axis_forward='-Z', axis_up='Y')
+@orientation_helper(axis_forward='Z', axis_up='-Y')
 class ImportGNS(bpy.types.Operator, ImportHelper):
     """Load a Final Fantasy Tactics GNS File"""
     bl_idname = "import_scene.gns"

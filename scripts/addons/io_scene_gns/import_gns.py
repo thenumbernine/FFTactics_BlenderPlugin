@@ -3372,6 +3372,7 @@ def load(context,
 
         context_mat_wrap.base_color_texture.image = image
         context_mat_wrap.base_color_texture.texcoords = 'UV'
+        # default specular is 1, which is shiny, which is ugly
         context_mat_wrap.specular = 0
 
         filename = os.path.splitext((os.path.basename(filepath)))[0]
@@ -3388,7 +3389,7 @@ def load(context,
             V = map.vertexesForPoly(s)
             n = len(V)
             for v in V:
-                verts_loc.append((v.point.X/xscale, -v.point.Y/yscale, -v.point.Z/zscale))
+                verts_loc.append((v.point.X/xscale, v.point.Y/yscale, v.point.Z/zscale))
                 
                 if hasattr(v, 'normal'):
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
@@ -3505,11 +3506,12 @@ def load(context,
             clnors = array.array('f', [0.0] * (len(me.loops) * 3))
             me.loops.foreach_get("normal", clnors)
 
-            if not unique_smooth_groups:
-                me.polygons.foreach_set("use_smooth", [True] * len(me.polygons))
+            #if not unique_smooth_groups:
+            me.polygons.foreach_set("use_smooth", [False] * len(me.polygons))
 
             me.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
-            me.use_auto_smooth = True
+            # use_auto_smooth = True looks too dark ... thanks to all those zero normals I'm betting?
+            me.use_auto_smooth = False
 
         ob = bpy.data.objects.new(me.name, me)
         new_objects.append(ob)
