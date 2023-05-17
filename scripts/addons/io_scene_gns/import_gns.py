@@ -477,23 +477,24 @@ class Resources(object):
         untex_tri_data = ''
         untex_quad_data = ''
         for polygon in tex_tri:
-            vis = sum([ x * 2**(15-i) for i, x in enumerate(polygon.visible_angles) ])
+            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
             tex_tri_data += pack('<H', vis)
         tex_tri_data += '\x00' * (1024 - len(tex_tri_data))
         for polygon in tex_quad:
-            vis = sum([ x * 2**(15-i) for i, x in enumerate(polygon.visible_angles) ])
+            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
             tex_quad_data += pack('<H', vis)
         tex_quad_data += '\x00' * (1536 - len(tex_quad_data))
         for polygon in untex_tri:
-            vis = sum([ x * 2**(15-i) for i, x in enumerate(polygon.visible_angles) ])
+            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
             untex_tri_data += pack('<H', vis)
         untex_tri_data += '\x00' * (128 - len(untex_tri_data))
         for polygon in untex_quad:
-            vis = sum([ x * 2**(15-i) for i, x in enumerate(polygon.visible_angles) ])
+            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
             untex_quad_data += pack('<H', vis)
         untex_quad_data += '\x00' * (512 - len(untex_quad_data))
         visible_angles_data = tex_tri_data + tex_quad_data + untex_tri_data + untex_quad_data
         resource.chunks[toc_offset >> 2] = data[:offset] + visible_angles_data + data[offset + len(visible_angles_data):]
+
 ################################ fft/map/gns.py ################################
 
 INDEX1_22 = 0x22
@@ -2115,7 +2116,7 @@ class Triangle(object):
             self.C = Vertex(point[12:18])
             self.unknown5 = unknown5
         vis = unpack('H', visangle)[0]
-        self.visible_angles = [ (vis & 2**(15-x)) >> (15-x) for x in range(16) ]
+        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
         return self
 
     def vertices(self):
