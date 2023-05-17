@@ -3,6 +3,8 @@
 This is modified heavily from the JustinMarshall98 Ganesha Python version, which itself was modified from the Gomtuu Ganesha Python version.
 It was convenient that Blender plugins are written in Python.
 
+![example](ex3.png)
+
 # Installing
 
 To get it working, copy the folder structure into your Blender user path.
