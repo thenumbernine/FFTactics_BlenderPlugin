@@ -418,9 +418,9 @@ class Resources(object):
             for c in range(16):
                 (r, g, b, a) = palette[c]
                 value = a << 15
-                value += b << 10
-                value += g << 5
-                value += r << 0
+                value |= b << 10
+                value |= g << 5
+                value |= r << 0
                 palette_data += pack('<H', value)
         resource.chunks[toc_offset >> 2] = palette_data
 
@@ -2156,14 +2156,18 @@ class Quad(object):
 
 def paletteFromData(data):
     return [
-        (lambda unpacked : (
-            (unpacked >> 0) & 0x1f,
-            (unpacked >> 5) & 0x1f,
-            (unpacked >> 10) & 0x1f,
+        (lambda rgba, i : (
+            (rgba >> 0) & 0x1f,
+            (rgba >> 5) & 0x1f,
+            (rgba >> 10) & 0x1f,
             # fft 4th channel is transparency and not opacity?
-            1 - ((unpacked >> 15) & 0x01)
-        ))(unpack('H', data[c*2:c*2+2])[0])
-        for c in range(16)
+            1 - ((rgba >> 15) & 0x01)
+            # or is it only index 0 is transparent?
+            #0 if i == 0 else 1  # python ternary ... a if cond else b ... who thought that order up?
+            # or is it the color black?
+            #0 if rgba & 0x7fff == 0 else 1
+        ))(unpack('H', data[i*2:i*2+2])[0], i)
+        for i in range(16)
     ]
 
 class Ambient_Light(object):
@@ -2276,7 +2280,7 @@ class Map(object):
     # call this after read()
     def expandTexture(self):
         # expand the 8-bits into separate 4-bits into an image double array
-        self.textureGreyData = []
+        self.textureGreyData = []       # [y][x] in [0,15] integers
         for y in range(1024):
             dstrow = []
             for x in range(128):
@@ -2288,8 +2292,7 @@ class Map(object):
                 dstrow.append(pix2)
             self.textureGreyData.append(dstrow)
 
-        # while we're here, apply the palettes to the image and store it in a gaint tex in mem
-        # how to store? python list? PIL?
+        # colors[palette number][color number 0..15] = [0,1] real
         colors = []
         for (i, palette) in enumerate(self.color_palettes):
             colors.append([])
@@ -2304,21 +2307,18 @@ class Map(object):
 
         self.textureWidth = 17*256
         self.textureHeight = 1024
-        self.textureRGBAData = []    # [y][x][channel]
+        self.textureRGBAData = []    # [y][x][channel] in [0,1] real
         for y in range(1024):
             dstrow = []
             srcrow = self.textureGreyData[y]
             # first append all palettes
             for (i, palette) in enumerate(self.color_palettes):
                 for x in range(256):
-                    c = colors[i][srcrow[x]]
-                    color = (c[0], c[1], c[2], c[3])
-                    dstrow.append(c)
+                    dstrow.append(colors[i][srcrow[x]])
             # last append greyscale ... why?
             for x in range(256):
                 c = srcrow[x]/15.        #[0,255]
-                color = (c,c,c,1)
-                dstrow.append(color)
+                dstrow.append((c,c,c,1.))
             self.textureRGBAData.append(dstrow)
             assert len(dstrow) == self.textureWidth
         assert len(self.textureRGBAData) == self.textureHeight
@@ -2438,6 +2438,8 @@ def load(context,
         from bpy_extras import node_shader_utils
         
         progress.enter_substeps(1, "Importing GNS %r..." % filepath)
+        
+        filename = os.path.splitext((os.path.basename(filepath)))[0]
 
         if global_matrix is None:
             global_matrix = mathutils.Matrix()
@@ -2488,18 +2490,29 @@ def load(context,
             for color in row
             for ch in color           
         ]
-        #image.filepath_raw = "/tmp/temp.png"
-        #image.file_format = 'PNG'
-        #image.save()
-
         context_mat_wrap.base_color_texture.image = image
         context_mat_wrap.base_color_texture.texcoords = 'UV'
         # default specular is 1, which is shiny, which is ugly
         context_mat_wrap.specular = 0
 
-        filename = os.path.splitext((os.path.basename(filepath)))[0]
-        dataname = filename
-        me = bpy.data.meshes.new(dataname)
+        # TODO just write a single greyscale image,
+        # and write the 16 palettes
+        # and set up Graph Editor for dynamically picking the palette
+        """
+        # write out each individual 16 palettes
+        palimages = [None] * len(map.color_palettes)
+        for (i, palette) in enumerate(map.color_palettes):
+            palimages[i] = bpy.data.images.new('TexPalBaked'+str(i), width=256, height=1024)
+            pix = [0] * (4 * 1024 * 256)
+            for y in range(1024):
+                for x in range(256):
+                    color = palette[map.textureGreyData[y][x]]
+                    for ch in range(4):
+                        pix[ch + 4 * (x + 256 * y)] = color[ch]
+            palimages[i].pixels = pix
+        """
+
+        me = bpy.data.meshes.new(filename)
         me.materials.append(context_material)
 
         xscale = 1
