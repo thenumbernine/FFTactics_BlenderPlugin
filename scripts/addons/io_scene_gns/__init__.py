@@ -47,17 +47,17 @@ class ImportGNS(bpy.types.Operator, ImportHelper):
     )
 
     global_scale_x : FloatProperty(
-        name = "Scale X",
+        name = "Scale Down X",
         min=.01, max=1000.,
         default=28.0,
     )
     global_scale_y : FloatProperty(
-        name = "Scale Y",
+        name = "Scale Down Y",
         min=.01, max=1000.,
         default=28.0,
     )
     global_scale_z : FloatProperty(
-        name = "Scale Z",
+        name = "Scale Down Z",
         min=.01, max=1000.,
         default=24.0,
     )

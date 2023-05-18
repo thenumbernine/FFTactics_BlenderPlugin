@@ -293,42 +293,56 @@ class Resources(object):
     def get_color_palettes(self, toc_offset=0x44):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        offset = 0
+        ofs = 0
         for i in range(16):
-            yield data[offset:offset+32]
-            offset += 32
+            yield data[ofs:ofs+32]
+            ofs += 32
 
-    # TODO
+    # struct fixed16_t { uint16_t ipart : 4; uint16_t fpart : 12 };
+    # struct { fixed16_t red[3], green[3], blue[3] }
     def get_dir_light_rgb(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        offset = 0
+        ofs = 0
         for i in range(3):
-            yield data[offset:offset+2] + data[offset+6:offset+8] + data[offset+12:offset+14]
-            offset += 2
+            # GaneshaDx says read signed (?) int16, clamp the value to 2040 (2048?), then divide by 8 to get [0,255]
+            # so that means the bottom 11 bits are color channels
+            # then what are the top 5 bits?
+            mask = (1<<11)-1
+            yield (
+                (uint16(data[ofs:ofs+2]) & mask) / float(mask),
+                (uint16(data[ofs+6:ofs+8]) & mask) / float(mask),
+                (uint16(data[ofs+12:ofs+14]) & mask) / float(mask),
+                1.
+            )
+            ofs += 2
 
-    # TODO
+    # struct{ short x,y,z }[3];
     def get_dir_light_norm(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        offset = 18
+        ofs = 18
         for i in range(3):
-            yield data[offset:offset+6]
-            offset += 6
+            yield unpack('<3h', data[ofs:ofs+6])
+            ofs += 6
 
-    # TODO
+    # struct color_t { byte r,g,b };
+    # color_t color
     def get_amb_light_rgb(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 36
-        return data[offset:offset+3]
+        return unpack('<3B', data[offset:offset+3])
 
-    # TODO
+    # struct { color_t top, bottom };
     def get_background(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 39
-        return data[offset:offset+6]
+        return [
+            unpack('<3B', data[offset:offset+3]),
+            unpack('<3B', data[offset+3:offset+6])
+        ]
 
     # TODO
     def get_terrain(self, toc_offset=0x68):
@@ -2078,6 +2092,11 @@ class GNS(object):
 
 ################################ fft/map/__init__.py ################################
 
+# fixed-point precision, 11 bits of fraction
+# possible values [-16, 15.99951171875]
+def uint16(str):
+    return unpack('<H', str)[0]
+
 class PointXYZ(object):
     def __init__(self, x, y, z):
         (self.X, self.Y, self.Z) = x, y, z
@@ -2106,7 +2125,7 @@ class VectorXYZ(object):
 
     @staticmethod
     def from_data(data):
-        return VectorXYZ(*[x / 4096.0 for x in unpack('<3h', data)])
+        return VectorXYZ(*[x / 4096. for x in unpack('<3h', data)])
 
     def coords(self):
         return (self.X, self.Y, self.Z)
@@ -2245,7 +2264,7 @@ class Terrain(object):
 
 def uv_to_panda2(page, pal, u, v):
     u = (u / 256. + pal) / 17
-    v = (page + v / 256.0) / 4.0
+    v = (page + v / 256.) / 4.
     return (u, v)
 
 class Map(object):
@@ -2275,14 +2294,19 @@ class Map(object):
         self.resources.read(self.resource_files)
         self.readPolygons()
 
-        self.color_palettes = [
-            paletteFromData(palette_data)
-            for palette_data in self.resources.get_color_palettes()
-        ]
-        self.gray_palettes = [
-            paletteFromData(palette_data)
-            for palette_data in self.resources.get_gray_palettes()
-        ]
+        self.color_palettes = [paletteFromData(palette_data) for palette_data in self.resources.get_color_palettes()]
+        self.gray_palettes = [paletteFromData(palette_data) for palette_data in self.resources.get_gray_palettes()]
+
+        self.dir_light_rgb = [l for l in self.resources.get_dir_light_rgb()]
+        print('dir_light_rgb: '+str(self.dir_light_rgb))
+        self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
+        print('dir_light_norm: '+str(self.dir_light_norm))
+        self.amb_light = self.resources.get_amb_light_rgb()
+        self.background = self.resources.get_background()
+        #for l in self.resources.get_background():
+        #    print('background: '+str(l))        # 6 byte-values
+        #for l in self.resources.get_terrain():
+        #    print('terrain: '+str(l))           # 4100 byte entries
 
     # check.
     def readPolygons(self):
@@ -2538,10 +2562,7 @@ def load(context,
             V = map.vertexesForPoly(s)
             n = len(V)
             for v in V:
-                verts_loc.append((
-                    v.point.X/global_scale_x,
-                    v.point.Y/global_scale_y,
-                    v.point.Z/global_scale_z))
+                verts_loc.append((v.point.X, v.point.Y, v.point.Z))
 
                 if hasattr(v, 'normal'):
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
@@ -2551,29 +2572,16 @@ def load(context,
                     # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
                     #  Error: Array length mismatch (got 6615, expected more)
                     # should I put the non-texcoord/normal'd faces in a separate mesh?
+                    # TODO give them their own material
                     verts_tex.append((0,0))
                     verts_nor.append((0,0,0))
 
             # turn all polys into fans
             for i in range(1,n-1):
-                face_vert_loc_indices = []
-                face_vert_nor_indices = []
-                face_vert_tex_indices = []
-                face_vert_loc_indices.append(vi+0)
-                face_vert_loc_indices.append(vi+i)
-                face_vert_loc_indices.append(vi+i+1)
-
+                face_vert_loc_indices = [vi+0, vi+i, vi+i+1]
                 #if hasattr(V[0], 'normal'):
-                face_vert_nor_indices.append(vti+0)
-                face_vert_nor_indices.append(vti+i)
-                face_vert_nor_indices.append(vti+i+1)
-                face_vert_tex_indices.append(vti+0)
-                face_vert_tex_indices.append(vti+i)
-                face_vert_tex_indices.append(vti+i+1)
-
-                if len(face_vert_loc_indices) != 3:
-                    print('bad face_vert_loc_indices: '+str(len(face_vert_loc_indices)))
-                    raise "Python SUCKS"
+                face_vert_nor_indices = [vti+0, vti+i, vti+i+1]
+                face_vert_tex_indices = [vti+0, vti+i, vti+i+1]
 
                 face = (
                     face_vert_loc_indices,
@@ -2681,6 +2689,17 @@ def load(context,
         view_layer = context.view_layer
         collection = view_layer.active_layer_collection.collection
 
+        
+        # directional lights
+        # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
+        for i in range(3):
+            lightname = 'Light '+str(i)
+            light_data = bpy.data.lights.new(name=lightname, type='SUN')
+            light_data.energy = 30
+            light_object = bpy.data.objects.new(name=lightname, object_data=light_data)
+            light_object.color = map.dir_light_rgb[i]
+            new_objects.append(light_object)
+
         # Create new obj
         for obj in new_objects:
             collection.objects.link(obj)
@@ -2693,6 +2712,10 @@ def load(context,
 
         axis_min = [1000000000] * 3
         axis_max = [-1000000000] * 3
+        
+        # TODO before matrix_world?  as matrix_world?
+        for obj in new_objects:
+            obj.scale = 1./global_scale_x, 1./global_scale_y, 1./global_scale_z
 
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
