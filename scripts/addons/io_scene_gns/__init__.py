@@ -46,6 +46,22 @@ class ImportGNS(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     )
 
+    global_scale_x : FloatProperty(
+        name = "Scale X",
+        min=.01, max=1000.,
+        default=28.0,
+    )
+    global_scale_y : FloatProperty(
+        name = "Scale Y",
+        min=.01, max=1000.,
+        default=28.0,
+    )
+    global_scale_z : FloatProperty(
+        name = "Scale Z",
+        min=.01, max=1000.,
+        default=24.0,
+    )
+
     def execute(self, context):
         # print("Selected: " + context.active_object.name)
         from . import import_gns
@@ -120,6 +136,9 @@ class GNS_PT_import_transform(bpy.types.Panel):
 
         layout.prop(operator, "axis_forward")
         layout.prop(operator, "axis_up")
+        layout.prop(operator, "global_scale_x")
+        layout.prop(operator, "global_scale_y")
+        layout.prop(operator, "global_scale_z")
 
 
 class GNS_PT_import_geometry(bpy.types.Panel):

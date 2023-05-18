@@ -49,6 +49,7 @@ class Resource(object):
         self.chunks = [''] * 49
         self.size = None
 
+    # check.
     def read(self, file_path):
         self.file_path = file_path
         self.size = getsize(self.file_path)
@@ -105,6 +106,7 @@ class Resources(object):
         super(Resources, self).__init__()
         self.chunks = [None] * 49
 
+    # check.
     def read(self, files):
         for file_path in files:
             resource = Resource()
@@ -115,13 +117,7 @@ class Resources(object):
                 if resource.chunks[i]:
                     self.chunks[i] = resource
 
-    def write(self):
-        written = []
-        for chunk in self.chunks:
-            if chunk and chunk.file_path not in written:
-                chunk.write()
-                written.append(chunk.file_path)
-
+    # check.
     def get_tex_3gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -132,6 +128,7 @@ class Resources(object):
             yield polygon_data
             offset += 18
 
+    # check.
     def get_tex_4gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -142,6 +139,7 @@ class Resources(object):
             yield polygon_data
             offset += 24
 
+    # check.
     def get_untex_3gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -152,6 +150,7 @@ class Resources(object):
             yield polygon_data
             offset += 18
 
+    # check.
     def get_untex_4gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -162,6 +161,7 @@ class Resources(object):
             yield polygon_data
             offset += 24
 
+    # check.
     def get_tex_3gon_norm(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -172,6 +172,7 @@ class Resources(object):
             yield normal_data
             offset += 18
 
+    # check.
     def get_tex_4gon_norm(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -182,6 +183,7 @@ class Resources(object):
             yield normal_data
             offset += 24
 
+    # check.
     def get_tex_3gon_uv(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -192,6 +194,7 @@ class Resources(object):
             yield texcoord_data
             offset += 10
 
+    # check.
     def get_tex_4gon_uv(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -202,6 +205,7 @@ class Resources(object):
             yield texcoord_data
             offset += 12
 
+    # check.
     def get_untex_3gon_unknown(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -212,6 +216,7 @@ class Resources(object):
             yield unk_data
             offset += 4
 
+    # check.
     def get_untex_4gon_unknown(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -222,6 +227,7 @@ class Resources(object):
             yield unk_data
             offset += 4
 
+    # check.
     def get_tex_3gon_terrain_coords(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -232,6 +238,7 @@ class Resources(object):
             yield terrain_coord_data
             offset += 2
 
+    # check.
     def get_tex_4gon_terrain_coords(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -242,6 +249,7 @@ class Resources(object):
             yield terrain_coord_data
             offset += 2
 
+    # check.
     def get_tex_3gon_vis(self, toc_offset=0xb0):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -251,6 +259,7 @@ class Resources(object):
             yield vis_data
             offset += 2
 
+    # check.
     def get_tex_4gon_vis(self, toc_offset=0xb0):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -260,6 +269,7 @@ class Resources(object):
             yield vis_data
             offset += 2
 
+    # check.
     def get_untex_3gon_vis(self, toc_offset=0xb0):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -269,6 +279,7 @@ class Resources(object):
             yield vis_data
             offset += 2
 
+    # check.
     def get_untex_4gon_vis(self, toc_offset=0xb0):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -278,6 +289,7 @@ class Resources(object):
             yield vis_data
             offset += 2
 
+    # check.
     def get_color_palettes(self, toc_offset=0x44):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -286,6 +298,7 @@ class Resources(object):
             yield data[offset:offset+32]
             offset += 32
 
+    # TODO
     def get_dir_light_rgb(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -294,6 +307,7 @@ class Resources(object):
             yield data[offset:offset+2] + data[offset+6:offset+8] + data[offset+12:offset+14]
             offset += 2
 
+    # TODO
     def get_dir_light_norm(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -302,24 +316,28 @@ class Resources(object):
             yield data[offset:offset+6]
             offset += 6
 
+    # TODO
     def get_amb_light_rgb(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 36
         return data[offset:offset+3]
 
+    # TODO
     def get_background(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 39
         return data[offset:offset+6]
 
+    # TODO
     def get_terrain(self, toc_offset=0x68):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 0
         return data
 
+    # check.
     def get_gray_palettes(self, toc_offset=0x7c):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
@@ -327,6 +345,13 @@ class Resources(object):
         for i in range(16):
             yield data[offset:offset+32]
             offset += 32
+
+    def write(self):
+        written = []
+        for chunk in self.chunks:
+            if chunk and chunk.file_path not in written:
+                chunk.write()
+                written.append(chunk.file_path)
 
     def put_polygons(self, polygons, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
@@ -2229,13 +2254,14 @@ class Map(object):
         self.texture = Texture_File()
         self.resources = Resources()
 
+    # check.
     def set_situation(self, situation):
         self.situation = situation % len(self.gns.situations)
         self.texture_files = self.gns.get_texture_files(self.situation)
         self.resource_files = self.gns.get_resource_files(self.situation)
         self.resources = Resources()
 
-    # calls read()
+    # check.  calls read()
     def read_gns(self, gns_path):
         self.gns.read(gns_path)
         self.set_situation(0)
@@ -2243,6 +2269,7 @@ class Map(object):
         self.expandTexture()
         return self
 
+    # check.  called from read()
     def read(self):
         self.texture.read(self.texture_files)
         self.resources.read(self.resource_files)
@@ -2257,26 +2284,18 @@ class Map(object):
             for palette_data in self.resources.get_gray_palettes()
         ]
 
+    # check.
     def readPolygons(self):
-        minx = 32767; miny = 32767; minz = 32767
-        maxx = -32768; maxy = -32768; maxz = -32768
-        self.polygons = (list(self.get_tex_3gon())
+        self.polygons = (
+                  list(self.get_tex_3gon())
                 + list(self.get_tex_4gon())
                 + list(self.get_untex_3gon())
                 + list(self.get_untex_4gon()))
-        for polygon in self.polygons:
-            for vertex in polygon.vertices():
-                minx = min(minx, vertex.point.X)
-                miny = min(miny, vertex.point.Y)
-                minz = min(minz, vertex.point.Z)
-                maxx = max(maxx, vertex.point.X)
-                maxy = max(maxy, vertex.point.Y)
-                maxz = max(maxz, vertex.point.Z)
-        self.extents = ((minx, miny, minz), (maxx, maxy, maxz))
 
-    # call this after read()
+    # check.  called after read()
     def expandTexture(self):
         # expand the 8-bits into separate 4-bits into an image double array
+        # this isn't grey, it's indexed into one of the 16 palettes.
         self.textureGreyData = []       # [y][x] in [0,15] integers
         for y in range(1024):
             dstrow = []
@@ -2302,6 +2321,7 @@ class Map(object):
                 )
                 colors[i].append(dstc)
 
+        # holds the indexed texture with each of the 16 palettes applied, then last is a greyscale palette
         self.textureWidth = 17*256
         self.textureHeight = 1024
         self.textureRGBAData = []    # [y][x][channel] in [0,1] real
@@ -2320,10 +2340,7 @@ class Map(object):
             assert len(dstrow) == self.textureWidth
         assert len(self.textureRGBAData) == self.textureHeight
 
-    def write(self):
-        #self.texture.write()
-        self.resources.write()
-
+    # check.
     def get_tex_3gon(self, toc_index=0x40):
         points = self.resources.get_tex_3gon_xyz(toc_index)
         if toc_index == 0x40:
@@ -2337,6 +2354,7 @@ class Map(object):
             polygon = Triangle().from_data(point, visangle, normal, texcoord, terrain_coords=terrain_coord)
             yield polygon
 
+    # check.
     def get_tex_4gon(self, toc_index=0x40):
         points = self.resources.get_tex_4gon_xyz(toc_index)
         if toc_index == 0x40:
@@ -2350,6 +2368,7 @@ class Map(object):
             polygon = Quad().from_data(point, visangle, normal, texcoord, terrain_coords=terrain_coord)
             yield polygon
 
+    # check.
     def get_untex_3gon(self, toc_index=0x40):
         points = self.resources.get_untex_3gon_xyz(toc_index)
         if toc_index == 0x40:
@@ -2361,6 +2380,7 @@ class Map(object):
             polygon = Triangle().from_data(point, visangle, unknown5=unknown)
             yield polygon
 
+    # check.
     def get_untex_4gon(self, toc_index=0x40):
         points = self.resources.get_untex_4gon_xyz(toc_index)
         if toc_index == 0x40:
@@ -2371,6 +2391,10 @@ class Map(object):
         for point, visangle, unknown in zip(points, visangles, unknowns):
             polygon = Quad().from_data(point, visangle, unknown5=unknown)
             yield polygon
+
+    def write(self):
+        #self.texture.write()
+        self.resources.write()
 
     def put_texture(self, texture):
         texture_data = ''
@@ -2421,13 +2445,9 @@ class Map(object):
 def load(context,
          filepath,
          *,
-         global_clamp_size=0.0,
-         use_smooth_groups=True,
-         use_edges=True,
-         use_split_objects=True,
-         use_split_groups=False,
-         use_image_search=True,
-         use_groups_as_vgroups=False,
+         global_scale_x=28.0,
+         global_scale_y=28.0,
+         global_scale_z=24.0,
          relpath=None,
          global_matrix=None
          ):
@@ -2446,7 +2466,7 @@ def load(context,
         verts_tex = []
         faces = []  # tuples of the faces
         material_libs = set()  # filenames to material libs this OBJ uses
-        vertex_groups = {}  # when use_groups_as_vgroups is true
+        vertex_groups = {}
 
         # Context variables
         context_material = None
@@ -2512,16 +2532,16 @@ def load(context,
         me = bpy.data.meshes.new(filename)
         me.materials.append(context_material)
 
-        xscale = 1
-        yscale = 1
-        zscale = 1
         vi = 0
         vti = 0
         for s in map.polygons:
             V = map.vertexesForPoly(s)
             n = len(V)
             for v in V:
-                verts_loc.append((v.point.X/xscale, v.point.Y/yscale, v.point.Z/zscale))
+                verts_loc.append((
+                    v.point.X/global_scale_x,
+                    v.point.Y/global_scale_y,
+                    v.point.Z/global_scale_z))
 
                 if hasattr(v, 'normal'):
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
@@ -2626,6 +2646,7 @@ def load(context,
                                 for uv in verts_tex[face_uvidx])
             me.uv_layers[0].data.foreach_set("uv", loops_uv)
 
+        use_edges=True
         use_edges = use_edges and bool(edges)
         if use_edges:
             me.edges.add(len(edges))
