@@ -29,9 +29,10 @@ Maybe later I'll get fancy with multiple palettes and other stuff.
 TODO:
 - set the alpha in blender to the material transparency ... or for me to figure out how to get it to show
 - separate the indexed-texture from the palettes, and make palettes somehow easily swappable in blender
-- ambient rgb
-- background color
+- I'm handling ambient via assigning it to the world background color.  is this a good thing?
+- background gradient somehow
 - terrain
+- exporting
 
 ## Sources:
 

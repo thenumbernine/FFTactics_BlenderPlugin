@@ -2502,7 +2502,6 @@ def load(context,
         unique_materials = {}
         unique_smooth_groups = {}
 
-
         progress.enter_substeps(3, "Parsing GNS file...")
 
         map = Map().read_gns(filepath)
@@ -2513,27 +2512,29 @@ def load(context,
 
         new_objects = []  # put new objects here
 
+
+        ### make the textured material
+
         # for now lets have 1 material to parallel ganesha / my obj exporter
         # later I can do 1 material per palette or something
-        ma_name = 'DefaultGNS'
-        context_material = bpy.data.materials.new(ma_name)
-        material_mapping = {ma_name: 0}
-        context_mat_wrap = node_shader_utils.PrincipledBSDFWrapper(context_material, is_readonly=False)
-        context_mat_wrap.use_nodes = True
-
+        ma_name_tex = 'GNS Material Textured'
+        ma = unique_materials[ma_name_tex] = bpy.data.materials.new(ma_name_tex)
+        ma_wrap = node_shader_utils.PrincipledBSDFWrapper(ma, is_readonly=False)
+        ma_wrap.use_nodes = True
+        
         # get image ...
         # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-        image = bpy.data.images.new('DefaultGNSTex', width=map.textureWidth, height=map.textureHeight)
+        image = bpy.data.images.new('GNS Texture', width=map.textureWidth, height=map.textureHeight)
         image.pixels = [
             ch
             for row in map.textureRGBAData
             for color in row
             for ch in color
         ]
-        context_mat_wrap.base_color_texture.image = image
-        context_mat_wrap.base_color_texture.texcoords = 'UV'
+        ma_wrap.base_color_texture.image = image
+        ma_wrap.base_color_texture.texcoords = 'UV'
         # default specular is 1, which is shiny, which is ugly
-        context_mat_wrap.specular = 0
+        ma_wrap.specular = 0
 
         # TODO just write a single greyscale image,
         # and write the 16 palettes
@@ -2552,8 +2553,27 @@ def load(context,
             palimages[i].pixels = pix
         """
 
+
+        ### make the untextured material
+
+        ma_name_untex = 'GNS Material Untextured'
+        ma = unique_materials[ma_name_untex] = bpy.data.materials.new(ma_name_untex)
+        ma_wrap = node_shader_utils.PrincipledBSDFWrapper(ma, is_readonly=False)
+        ma_wrap.use_nodes = True
+        ma_wrap.specular = 0
+        ma_wrap.base_color = (0., 0., 0.)
+
+
+        ### make the mesh
+
+        material_mapping = {name: i for i, name in enumerate(unique_materials)}
+        materials = [None] * len(unique_materials)
+        for name, index in material_mapping.items():
+            materials[index] = unique_materials[name]
+
         me = bpy.data.meshes.new(filename)
-        me.materials.append(context_material)
+        for material in materials:
+            me.materials.append(material)
 
         vi = 0
         vti = 0
@@ -2561,9 +2581,10 @@ def load(context,
             V = map.vertexesForPoly(s)
             n = len(V)
             for v in V:
+                vtxHasTexCoord = hasattr(v, 'normal')
                 verts_loc.append((v.point.X, v.point.Y, v.point.Z))
 
-                if hasattr(v, 'normal'):
+                if vtxHasTexCoord:
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
                     verts_tex.append(texcoord)
                     verts_nor.append((v.normal.X, v.normal.Y, v.normal.Z))
@@ -2578,7 +2599,7 @@ def load(context,
             # turn all polys into fans
             for i in range(1,n-1):
                 face_vert_loc_indices = [vi+0, vi+i, vi+i+1]
-                #if hasattr(V[0], 'normal'):
+                #if vtxHasTexCoord:
                 face_vert_nor_indices = [vti+0, vti+i, vti+i+1]
                 face_vert_tex_indices = [vti+0, vti+i, vti+i+1]
 
@@ -2586,14 +2607,14 @@ def load(context,
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    ma_name,
+                    ma_name_tex if vtxHasTexCoord else ma_name_untex,
                     context_smooth_group,
                     context_object_key,
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
                 )
                 faces.append(face)
 
-            #if hasattr(V[0], 'normal'):
+            #if vtxHasTexCoord:
             vti+=n
 
             vi+=n
@@ -2692,7 +2713,7 @@ def load(context,
         # directional lights
         # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
         for i in range(3):
-            lightname = 'Light '+str(i)
+            lightname = 'GNS Light '+str(i)
             light_data = bpy.data.lights.new(name=lightname, type='SUN')
             # energy? ...
             light_data.energy = 20
@@ -2703,11 +2724,21 @@ def load(context,
         
         # ambient light?  in blender?
         # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
+        # seems the most common way is ...
+        # ... overriding the world background
         world = bpy.data.worlds['World']
         background = world.node_tree.nodes['Background']
         background.inputs[0].default_value[:3] = map.amb_light_rgb
         background.inputs[1].default_value = 5.
-
+        
+        # ... but the most common way of doing a skybox in blender is ...
+        # ... overriding the world background
+        # so ... what to do.
+        # just put a big sphere around the outside? 
+        #  but how come when I do this, the sphere backface-culls, even when backface-culling is disabled?
+        #  why does alpha not work when alpha-clipping or alpha-blending is enabled?
+        #  and why did the goblin turn on the stove?
+        # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
 
         # Create new obj
         for obj in new_objects:
