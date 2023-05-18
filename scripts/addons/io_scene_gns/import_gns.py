@@ -2,6 +2,7 @@ import array
 import os
 import time
 import bpy
+import math
 import mathutils
 
 from bpy_extras.io_utils import unpack_list
@@ -73,7 +74,6 @@ class Resource(object):
         self.toc = toc
 
     def write(self):
-        from math import ceil
         offset = 0xc4
         toc = []
         for chunk in self.chunks:
@@ -90,8 +90,8 @@ class Resource(object):
         print(dateTime)
         old_size = self.size
         self.size = len(data)
-        old_sectors = int(ceil(old_size / 2048.0))
-        new_sectors = int(ceil(self.size / 2048.0))
+        old_sectors = int(math.ceil(old_size / 2048.0))
+        new_sectors = int(math.ceil(self.size / 2048.0))
         if new_sectors > old_sectors:
             print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
         elif new_sectors < old_sectors:
@@ -312,8 +312,7 @@ class Resources(object):
             yield (
                 (uint16(data[ofs:ofs+2]) & mask) / float(mask),
                 (uint16(data[ofs+6:ofs+8]) & mask) / float(mask),
-                (uint16(data[ofs+12:ofs+14]) & mask) / float(mask),
-                1.
+                (uint16(data[ofs+12:ofs+14]) & mask) / float(mask)
             )
             ofs += 2
 
@@ -2695,9 +2694,11 @@ def load(context,
         for i in range(3):
             lightname = 'Light '+str(i)
             light_data = bpy.data.lights.new(name=lightname, type='SUN')
-            light_data.energy = 30
+            # energy? ...
+            light_data.energy = 20
+            light_data.color = map.dir_light_rgb[i]
+            light_data.angle = math.pi
             light_object = bpy.data.objects.new(name=lightname, object_data=light_data)
-            light_object.color = map.dir_light_rgb[i]
             new_objects.append(light_object)
 
         # Create new obj
