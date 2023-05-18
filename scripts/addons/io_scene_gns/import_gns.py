@@ -2155,20 +2155,17 @@ class Quad(object):
 
 
 def paletteFromData(data):
-    return [
-        (lambda rgba, i : (
-            (rgba >> 0) & 0x1f,
-            (rgba >> 5) & 0x1f,
-            (rgba >> 10) & 0x1f,
-            # fft 4th channel is transparency and not opacity?
-            1 - ((rgba >> 15) & 0x01)
-            # or is it only index 0 is transparent?
-            #0 if i == 0 else 1  # python ternary ... a if cond else b ... who thought that order up?
-            # or is it the color black?
-            #0 if rgba & 0x7fff == 0 else 1
-        ))(unpack('H', data[i*2:i*2+2])[0], i)
-        for i in range(16)
-    ]
+    palette = [None] * 16
+    for i in range(16):
+        rgba = unpack('H', data[i*2:i*2+2])[0]
+        r = (rgba >> 0) & 0x1f
+        g = (rgba >> 5) & 0x1f
+        b = (rgba >> 10) & 0x1f
+        a = (rgba >> 15) & 1
+        if not (r == 0 and g == 0 and b == 0):
+            a = 1
+        palette[i]  = (r,g,b,a)
+    return palette
 
 class Ambient_Light(object):
     def __init__(self, data):
@@ -2436,9 +2433,9 @@ def load(context,
          ):
     with ProgressReport(context.window_manager) as progress:
         from bpy_extras import node_shader_utils
-        
+
         progress.enter_substeps(1, "Importing GNS %r..." % filepath)
-        
+
         filename = os.path.splitext((os.path.basename(filepath)))[0]
 
         if global_matrix is None:
@@ -2457,12 +2454,12 @@ def load(context,
         context_object_key = None
         context_object_obpart = None
         context_vgroup = None
-        
+
         use_default_material = False
         unique_materials = {}
         unique_smooth_groups = {}
 
-    
+
         progress.enter_substeps(3, "Parsing GNS file...")
 
         map = Map().read_gns(filepath)
@@ -2472,7 +2469,7 @@ def load(context,
             bpy.ops.object.select_all(action='DESELECT')
 
         new_objects = []  # put new objects here
-    
+
         # for now lets have 1 material to parallel ganesha / my obj exporter
         # later I can do 1 material per palette or something
         ma_name = 'DefaultGNS'
@@ -2480,7 +2477,7 @@ def load(context,
         material_mapping = {ma_name: 0}
         context_mat_wrap = node_shader_utils.PrincipledBSDFWrapper(context_material, is_readonly=False)
         context_mat_wrap.use_nodes = True
-        
+
         # get image ...
         # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
         image = bpy.data.images.new('DefaultGNSTex', width=map.textureWidth, height=map.textureHeight)
@@ -2488,7 +2485,7 @@ def load(context,
             ch
             for row in map.textureRGBAData
             for color in row
-            for ch in color           
+            for ch in color
         ]
         context_mat_wrap.base_color_texture.image = image
         context_mat_wrap.base_color_texture.texcoords = 'UV'
@@ -2525,7 +2522,7 @@ def load(context,
             n = len(V)
             for v in V:
                 verts_loc.append((v.point.X/xscale, v.point.Y/yscale, v.point.Z/zscale))
-                
+
                 if hasattr(v, 'normal'):
                     texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
                     verts_tex.append(texcoord)
@@ -2536,7 +2533,7 @@ def load(context,
                     # should I put the non-texcoord/normal'd faces in a separate mesh?
                     verts_tex.append((0,0))
                     verts_nor.append((0,0,0))
-            
+
             # turn all polys into fans
             for i in range(1,n-1):
                 face_vert_loc_indices = []
@@ -2545,7 +2542,7 @@ def load(context,
                 face_vert_loc_indices.append(vi+0)
                 face_vert_loc_indices.append(vi+i)
                 face_vert_loc_indices.append(vi+i+1)
-                
+
                 #if hasattr(V[0], 'normal'):
                 face_vert_nor_indices.append(vti+0)
                 face_vert_nor_indices.append(vti+i)
@@ -2568,13 +2565,13 @@ def load(context,
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
                 )
                 faces.append(face)
-     
+
             #if hasattr(V[0], 'normal'):
             vti+=n
-            
+
             vi+=n
-            
-       
+
+
         loops_vert_idx = tuple(vidx for (face_vert_loc_indices, _, _, _, _, _, _) in faces for vidx in face_vert_loc_indices)
         print('len faces', len(faces))
         print('len loops_vert_idx', len(loops_vert_idx))
@@ -2586,7 +2583,7 @@ def load(context,
         me.polygons.add(len(faces))
         me.loops.add(tot_loops)
         me.vertices.add(len(verts_loc))
-        
+
         me.vertices.foreach_set("co", unpack_list(verts_loc))
 
         faces_loop_start = []
@@ -2600,7 +2597,7 @@ def load(context,
 
         print('len faces', len(faces))
         print('len loops_vert_idx', len(loops_vert_idx))
-        
+
         me.loops.foreach_set("vertex_index", loops_vert_idx)
         me.polygons.foreach_set("loop_start", faces_loop_start)
         me.polygons.foreach_set("loop_total", faces_loop_total)
