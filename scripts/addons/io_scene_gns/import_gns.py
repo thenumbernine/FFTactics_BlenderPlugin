@@ -331,7 +331,7 @@ class Resources(object):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 36
-        return unpack('<3B', data[offset:offset+3])
+        return [x/255. for x in unpack('<3B', data[offset:offset+3])]
 
     # struct { color_t top, bottom };
     def get_background(self, toc_offset=0x64):
@@ -2300,7 +2300,7 @@ class Map(object):
         print('dir_light_rgb: '+str(self.dir_light_rgb))
         self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
         print('dir_light_norm: '+str(self.dir_light_norm))
-        self.amb_light = self.resources.get_amb_light_rgb()
+        self.amb_light_rgb = self.resources.get_amb_light_rgb()
         self.background = self.resources.get_background()
         #for l in self.resources.get_background():
         #    print('background: '+str(l))        # 6 byte-values
@@ -2700,6 +2700,14 @@ def load(context,
             light_data.angle = math.pi
             light_object = bpy.data.objects.new(name=lightname, object_data=light_data)
             new_objects.append(light_object)
+        
+        # ambient light?  in blender?
+        # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
+        world = bpy.data.worlds['World']
+        background = world.node_tree.nodes['Background']
+        background.inputs[0].default_value[:3] = map.amb_light_rgb
+        background.inputs[1].default_value = 5.
+
 
         # Create new obj
         for obj in new_objects:
