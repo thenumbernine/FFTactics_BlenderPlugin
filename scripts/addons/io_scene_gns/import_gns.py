@@ -21,25 +21,84 @@ from datetime import datetime
 
 from ctypes import *
 
-class RGBA5551(Structure):
+class MyStructure(Structure):
+    # why isn't there an eays wya to do this?
+    def toTuple(self):
+        return tuple(getattr(self, x[0]) for x in self._fields_)
+
+class Situation(MyStructure):
+    _pack_ = 1
+    _fields_ = [
+        ('index1', c_uint16),
+        ('arrange', c_uint8),
+        ('temp1', c_uint8, 4),
+        ('weather', c_uint8, 3),
+        ('time', c_uint8, 1),    # day vs night?
+        ('resourceType', c_uint16),
+    ]
+
+# trails Situation if it isn't a RESOURCE_EOF
+class SituationEx(MyStructure):
+    _pack_ = 1
+    _fields_ = [
+        ('unused00', c_uint16),
+        ('lba', c_uint32),
+        ('size', c_uint32),
+        ('unused0A', c_uint32),
+    ]
+
+class short3_t(MyStructure):
+    _pack_ = 1
+    _fields_ = [
+        ('x', c_int16),
+        ('y', c_int16),
+        ('z', c_int16),
+    ]
+
+class ubyte2_t(MyStructure):
+    _pack_ = 1
+    _fields_ = [
+        ('x', c_uint8),
+        ('y', c_uint8),
+    ]
+
+class Normal(MyStructure):
+    _pack_ = 1
+    _fields_ = [
+        ('x', c_int16),
+        ('y', c_int16),
+        ('z', c_int16),
+    ]
+
+    def toTuple(self):
+        return (
+            self.x / 4096.,
+            self.y / 4096.,
+            self.z / 4096.,
+        )
+
+class RGBA5551(MyStructure):
+    _pack_ = 1
     _fields_ = [
         ("r", c_ushort, 5),
         ("g", c_ushort, 5),
         ("b", c_ushort, 5),
         ("a", c_ushort, 1)
     ]
-    
-    @staticmethod
-    def binToRGBA(data):
-        rgba = RGBA5551.from_buffer_copy(data)
-        r = rgba.r / 31.
-        g = rgba.g / 31.
-        b = rgba.b / 31.
-        a = rgba.a * 1.
+   
+    # TODO need some generic conversion method names?
+    # deser / ser?  fromPy / toPy ?
+    def toTuple(self):
+        r = self.r / 31.
+        g = self.g / 31.
+        b = self.b / 31.
+        a = float(self.a)
         if not (r == 0. and g == 0. and b == 0.):
             a = 1.
         return (r,g,b,a)
 
+def readStruct(file, struct):
+    return struct.from_buffer_copy(file.read(sizeof(struct)))
 
 ################################ fft/map/texture.py ################################
 
@@ -66,6 +125,8 @@ class Texture_File(object):
 
 ################################ fft/map/resource.py ################################
 
+# this holds the TOC list of int32 offsets per ... resource?
+# why is there Resource.chunks and Resources.chunks?  when they are assigned the same thing?
 class Resource(object):
     def __init__(self):
         super(Resource, self).__init__()
@@ -87,6 +148,7 @@ class Resource(object):
         for i, entry in enumerate(toc[:-1]):
             begin = toc[i]
             if begin == 0:
+                print(file_path, i, 'resource offset is zero ... skipping')
                 continue
             end = None
             for j in range(i + 1, len(toc)):
@@ -140,6 +202,7 @@ class Resources(object):
                 if self.chunks[i] is not None:
                     continue
                 if resource.chunks[i]:
+                    print('setting chunk', i, 'to', file_path)
                     self.chunks[i] = resource
 
     # check.
@@ -311,9 +374,9 @@ class Resources(object):
             offset += 2
 
     # check.
-    def get_color_palettes(self, toc_offset=0x44):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
+    def get_color_palettes(self, toc_offset=0x11):
+        resource = self.chunks[toc_offset]
+        data = resource.chunks[toc_offset]
         ofs = 0
         for i in range(16):
             yield data[ofs:ofs+32]
@@ -324,6 +387,7 @@ class Resources(object):
     def get_dir_light_rgb(self, toc_offset=0x64):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
+        atou16 = lambda data: unpack('<H', data)[0]
         ofs = 0
         for i in range(3):
             # GaneshaDx says read signed (?) int16, clamp the value to 2040 (2048?), then divide by 8 to get [0,255]
@@ -2028,102 +2092,15 @@ gnslines = {
 }
 
 
-class GNS(object):
-    def __init__(self):
-        self.situations = []
-        self.items = {}
-
-    def read(self, file_path):
-        # used by game/ganesha/ui.py and game/ganesha/world.py
-        self.file_path = file_path
-
-        map_number = int(file_path[-7:-4])
-        try:
-            file = open(file_path, 'rb')
-        except IOError:
-            print('Unable to open file', file_path)
-            sys.exit(1)
-        map_dir = os.path.dirname(file_path)
-        line_number = 0
-        (index1, arrange, temp1, resource_type) = \
-                struct.unpack('<HBBH', file.read(6))
-        situations = {}
-        while not resource_type == RESOURCE_EOF:
-            time = (temp1 >> 7) & 0x1
-            weather = (temp1 >> 4) & 0x7
-            file.seek(2, 1)
-            resource_lba = struct.unpack('<I', file.read(4))[0]
-            resource_filename = gnslines[(map_number, line_number)]
-            resource_file_path = os.path.join(map_dir, resource_filename)
-            resource_size = struct.unpack('<I', file.read(4))[0]
-            situations[(index1, arrange, time, weather)] = True
-            if resource_type == RESOURCE_TEXTURE:
-                self.items[(index1, arrange, time, weather, 'tex')] = resource_file_path
-            else:
-                self.items[(index1, arrange, time, weather, 'res')] = resource_file_path
-            file.seek(4, 1)
-            line_number += 1
-            (index1, arrange, temp1, resource_type) = \
-                    struct.unpack('<HBBH', file.read(6))
-        self.situations = sorted(situations.keys())
-        file.close()
-
-    def get_texture_files(self, situation):
-        (index1, arrange, time, weather) = self.situations[situation]
-        search_items = [
-                (index1, arrange, time, weather, 'tex'),
-                (index1, arrange, TIME_0, WEATHER_0, 'tex'),
-                (index1, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-                (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-                (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-                (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-                ]
-        found = []
-        for key in search_items:
-            if key in self.items and self.items[key] not in found:
-                found.append(self.items[key])
-        return found
-
-    def get_resource_files(self, situation):
-        (index1, arrange, time, weather) = self.situations[situation]
-        search_items = [
-                (index1, arrange, time, weather, 'res'),
-                (index1, arrange, TIME_0, WEATHER_0, 'res'),
-                (index1, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-                (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-                (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-                (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-                ]
-        found = []
-        for key in search_items:
-            if key in self.items and self.items[key] not in found:
-                found.append(self.items[key])
-        return found
-
 ################################ fft/map/__init__.py ################################
 
-def atou16(data):
-    return unpack('<H', data)[0]
-
-def vertexFromData(data):
-    return unpack('<3h', data)
-
-# this is stored as bytes and transformed later based on palette, etc
-def texcoordFromData(data):
-    return unpack('<2B', data)
-
-def normalFromData(data):
-    x,y,z = unpack('<3h', data)
-    s = 1./4096.
-    return (s*x, s*y, s*z)
-
 class Vertex(object):
-    def __init__(self, point_data, normalData=None, texcoordData=None):
-        self.point = vertexFromData(point_data)
+    def __init__(self, pointData, normalData=None, texcoordData=None):
+        self.point = short3_t.from_buffer_copy(pointData).toTuple()
         if normalData:
-            self.normal = normalFromData(normalData)
+            self.normal = Normal.from_buffer_copy(normalData).toTuple()
         if texcoordData:
-            self.texcoord = texcoordFromData(texcoordData)
+            self.texcoord = ubyte2_t.from_buffer_copy(texcoordData).toTuple()
 
 class Triangle(object):
     def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
@@ -2265,22 +2242,34 @@ class Terrain(object):
 
 class Map(object):
     def __init__(self):
-        self.gns = GNS()
         self.texture = Texture_File()
         self.resources = Resources()
-
-    # check.
-    def set_situation(self, situation):
-        self.situation = situation % len(self.gns.situations)
-        self.texture_files = self.gns.get_texture_files(self.situation)
-        self.resource_files = self.gns.get_resource_files(self.situation)
-        self.resources = Resources()
+        self.situations = []
+        self.items = {}
 
     # check.  calls read()
-    def read_gns(self, gns_path):
-        self.gns.read(gns_path)
-        self.set_situation(0)
-        self.read()
+    def read(self, gnspath):
+        self.readGNS(gnspath)
+        self.setSituation(0)
+        
+        self.texture.read(self.textureFiles)
+        self.resources.read(self.resourceFiles)
+        self.readPolygons()
+
+        self.color_palettes = [
+            [RGBA5551.from_buffer_copy(paletteData[i*2:i*2+2]).toTuple() for i in range(16)]
+            for paletteData in self.resources.get_color_palettes()
+        ]
+        self.gray_palettes = [
+            [RGBA5551.from_buffer_copy(paletteData[i*2:i*2+2]).toTuple() for i in range(16)]
+            for paletteData in self.resources.get_gray_palettes()
+        ]
+
+        self.dir_light_rgb = [l for l in self.resources.get_dir_light_rgb()]
+        self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
+        self.amb_light_rgb = self.resources.get_amb_light_rgb()
+        self.background = self.resources.get_background()
+        self.terrain = Terrain(self.resources.get_terrain())
 
         # expand the 8-bits into separate 4-bits into an image double array
         # this isn't grey, it's indexed into one of the 16 palettes.
@@ -2295,29 +2284,67 @@ class Map(object):
                 dstrow.append(pix1)
                 dstrow.append(pix2)
             self.textureIndexedData.append(dstrow)
-
+        
         return self
 
-    # check.  called from read()
-    def read(self):
-        self.texture.read(self.texture_files)
-        self.resources.read(self.resource_files)
-        self.readPolygons()
+    def readGNS(self, file_path):
+        mapNum = int(file_path[-7:-4])
+        file = open(file_path, 'rb')
+        mapdir = os.path.dirname(file_path)
+        situations = {}
+        for lineNo in range(0x7fffffff): # or infinity or whatever.  why can't python just count integers without importing from another library?
+            sit = readStruct(file, Situation)
+            if sit.resourceType == RESOURCE_EOF:
+                break
+            readStruct(file, SituationEx)    # read? skip?
+            resFilePath = os.path.join(mapdir, gnslines[(mapNum, lineNo)])
+            situations[sit.toTuple()] = True
+            if sit.resourceType == RESOURCE_TEXTURE:
+                self.items[(sit.index1, sit.arrange, sit.time, sit.weather, 'tex')] = resFilePath
+            else:
+                self.items[(sit.index1, sit.arrange, sit.time, sit.weather, 'res')] = resFilePath
+        self.situations = sorted(situations.keys())
+        file.close()
 
-        self.color_palettes = [
-            [RGBA5551.binToRGBA(paletteData[i*2:i*2+2]) for i in range(16)]
-            for paletteData in self.resources.get_color_palettes()
-        ]
-        self.gray_palettes = [
-            [RGBA5551.binToRGBA(paletteData[i*2:i*2+2]) for i in range(16)]
-            for paletteData in self.resources.get_gray_palettes()
-        ]
+    def getTextureFiles(self, sitIndex):
+        s = Situation(*self.situations[sitIndex])
+        found = []
+        for key in [
+            (s.index1, s.arrange, s.time, s.weather, 'tex'),
+            (s.index1, s.arrange, TIME_0, WEATHER_0, 'tex'),
+            (s.index1, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
+            (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
+            (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
+            (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
+        ]:
+            if key in self.items and self.items[key] not in found:
+                found.append(self.items[key])
+        return found
 
-        self.dir_light_rgb = [l for l in self.resources.get_dir_light_rgb()]
-        self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
-        self.amb_light_rgb = self.resources.get_amb_light_rgb()
-        self.background = self.resources.get_background()
-        self.terrain = Terrain(self.resources.get_terrain())
+    def getResourceFiles(self, sitIndex):
+        s = Situation(*self.situations[sitIndex])
+        found = []
+        for key in [
+            (s.index1, s.arrange, s.time, s.weather, 'res'),
+            (s.index1, s.arrange, TIME_0, WEATHER_0, 'res'),
+            (s.index1, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
+            (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
+            (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
+            (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
+        ]:
+            if key in self.items and self.items[key] not in found:
+                found.append(self.items[key])
+        return found
+
+    # check.
+    def setSituation(self, sitIndex):
+        self.sitIndex = sitIndex % len(self.situations)
+        self.textureFiles = self.getTextureFiles(self.sitIndex)
+        self.resourceFiles = self.getResourceFiles(self.sitIndex)
+        self.resources = Resources()
+        # how often is this more than 1?
+        print('self.textureFiles', self.textureFiles)
+        print('self.resourceFiles', self.resourceFiles)
 
     # check.
     def readPolygons(self):
@@ -2476,7 +2503,7 @@ def load(context,
 
         progress.enter_substeps(3, "Parsing GNS file...")
 
-        map = Map().read_gns(filepath)
+        map = Map().read(filepath)
 
         # deselect all
         if bpy.ops.object.select_all.poll():
