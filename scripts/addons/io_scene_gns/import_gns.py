@@ -2465,6 +2465,15 @@ class Map(object):
 
 ################################ import_gns ################################
 
+# https://blender.stackexchange.com/a/239948
+def find_nodes_by_type(material, node_type):
+    node_list = []
+    if material.use_nodes and material.node_tree:
+            for n in material.node_tree.nodes:
+                if n.type == node_type:
+                    node_list.append(n)
+    return node_list
+
 def load(context,
          filepath,
          *,
@@ -2517,24 +2526,39 @@ def load(context,
 
         # for now lets have 1 material to parallel ganesha / my obj exporter
         # later I can do 1 material per palette or something
-        ma_name_tex = 'GNS Material Textured'
-        ma = unique_materials[ma_name_tex] = bpy.data.materials.new(ma_name_tex)
-        ma_wrap = node_shader_utils.PrincipledBSDFWrapper(ma, is_readonly=False)
-        ma_wrap.use_nodes = True
+        matWTexName = 'GNS Material Textured'
+        matWTex = unique_materials[matWTexName] = bpy.data.materials.new(matWTexName)
+        matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
+        matWTexWrap.use_nodes = True
         
         # get image ...
         # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-        image = bpy.data.images.new('GNS Texture', width=map.textureWidth, height=map.textureHeight)
+        texName = 'GNS Texture'
+        image = bpy.data.images.new(texName, width=map.textureWidth, height=map.textureHeight)
         image.pixels = [
             ch
             for row in map.textureRGBAData
             for color in row
             for ch in color
         ]
-        ma_wrap.base_color_texture.image = image
-        ma_wrap.base_color_texture.texcoords = 'UV'
+        matWTexWrap.base_color_texture.image = image
+        matWTexWrap.base_color_texture.texcoords = 'UV'
+        # link texture alpha channel to Principled BSDF material
+        # https://blender.stackexchange.com/a/239948
+        matWTex.node_tree.links.new(
+            find_nodes_by_type(matWTex, 'BSDF_PRINCIPLED')[0].inputs['Alpha'],
+            find_nodes_by_type(matWTex, 'TEX_IMAGE')[0].outputs['Alpha'])
         # default specular is 1, which is shiny, which is ugly
-        ma_wrap.specular = 0
+        matWTexWrap.specular = 0.
+        matWTexWrap.specular_tint = 0.
+        matWTexWrap.roughness = 0.
+
+        # setup transparency?
+        matWTexWrap.ior = 1.
+        matWTexWrap.alpha = 1.
+        #matWTex.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
+        matWTex.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
+
 
         # TODO just write a single greyscale image,
         # and write the 16 palettes
@@ -2556,12 +2580,12 @@ def load(context,
 
         ### make the untextured material
 
-        ma_name_untex = 'GNS Material Untextured'
-        ma = unique_materials[ma_name_untex] = bpy.data.materials.new(ma_name_untex)
-        ma_wrap = node_shader_utils.PrincipledBSDFWrapper(ma, is_readonly=False)
-        ma_wrap.use_nodes = True
-        ma_wrap.specular = 0
-        ma_wrap.base_color = (0., 0., 0.)
+        matWOTexName = 'GNS Material Untextured'
+        matWOTex = unique_materials[matWOTexName] = bpy.data.materials.new(matWOTexName)
+        matWOTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWOTex, is_readonly=False)
+        matWOTexWrap.use_nodes = True
+        matWOTexWrap.specular = 0
+        matWOTexWrap.base_color = (0., 0., 0.)
 
 
         ### make the mesh
@@ -2607,7 +2631,7 @@ def load(context,
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    ma_name_tex if vtxHasTexCoord else ma_name_untex,
+                    matWTexName if vtxHasTexCoord else matWOTexName,
                     context_smooth_group,
                     context_object_key,
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
