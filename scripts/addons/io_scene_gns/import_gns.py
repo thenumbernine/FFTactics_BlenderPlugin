@@ -28,6 +28,18 @@ class RGBA5551(Structure):
         ("b", c_ushort, 5),
         ("a", c_ushort, 1)
     ]
+    
+    @staticmethod
+    def binToRGBA(data):
+        rgba = RGBA5551.from_buffer_copy(data)
+        r = rgba.r / 31.
+        g = rgba.g / 31.
+        b = rgba.b / 31.
+        a = rgba.a * 1.
+        if not (r == 0. and g == 0. and b == 0.):
+            a = 1.
+        return (r,g,b,a)
+
 
 ################################ fft/map/texture.py ################################
 
@@ -243,8 +255,8 @@ class Resources(object):
         (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
         offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4 + unquadCount * 4
         for i in range(triCount):
-            terrain_coord_data = data[offset:offset+2]
-            yield terrain_coord_data
+            terrainCoordData = data[offset:offset+2]
+            yield terrainCoordData
             offset += 2
 
     # check.
@@ -254,8 +266,8 @@ class Resources(object):
         (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
         offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4 + unquadCount * 4 + triCount * 2
         for i in range(quadCount):
-            terrain_coord_data = data[offset:offset+2]
-            yield terrain_coord_data
+            terrainCoordData = data[offset:offset+2]
+            yield terrainCoordData
             offset += 2
 
     # check.
@@ -417,9 +429,9 @@ class Resources(object):
                 polygon.unknown6_2 = 3
             polygons_data += (''
                 + pack('BB', *polygon.A.texcoord)
-                + pack('BB', *[(polygon.unknown2_4 << 4) | polygon.texture_palette, polygon.unknown3])
+                + pack('BB', *[(polygon.unknown2_4 << 4) | polygon.paletteIndex, polygon.unknown3])
                 + pack('BB', *polygon.B.texcoord)
-                + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texture_page, polygon.unknown4])
+                + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texturePage, polygon.unknown4])
                 + pack('BB', *polygon.C.texcoord)
             )
         for polygon in tex_quad:
@@ -428,9 +440,9 @@ class Resources(object):
                 polygon.unknown6_2 = 3
             polygons_data += (''
                 + pack('BB', *polygon.A.texcoord)
-                + pack('BB', *[(polygon.unknown2_4 << 4) + polygon.texture_palette, polygon.unknown3])
+                + pack('BB', *[(polygon.unknown2_4 << 4) + polygon.paletteIndex, polygon.unknown3])
                 + pack('BB', *polygon.B.texcoord)
-                + pack('BB', *[(polygon.unknown6_2 << 2) + polygon.texture_page, polygon.unknown4])
+                + pack('BB', *[(polygon.unknown6_2 << 2) + polygon.texturePage, polygon.unknown4])
                 + pack('BB', *polygon.C.texcoord)
                 + pack('BB', *polygon.D.texcoord)
             )
@@ -439,11 +451,11 @@ class Resources(object):
         for polygon in untex_quad:
             polygons_data += polygon.unknown5
         for polygon in tex_tri:
-            val1 = (polygon.terrain_coords[1] << 1) + polygon.terrain_coords[2]
-            polygons_data += pack('BB', val1, polygon.terrain_coords[0])
+            val1 = (polygon.terrainCoords[1] << 1) + polygon.terrainCoords[2]
+            polygons_data += pack('BB', val1, polygon.terrainCoords[0])
         for polygon in tex_quad:
-            val1 = (polygon.terrain_coords[1] << 1) + polygon.terrain_coords[2]
-            polygons_data += pack('BB', val1, polygon.terrain_coords[0])
+            val1 = (polygon.terrainCoords[1] << 1) + polygon.terrainCoords[2]
+            polygons_data += pack('BB', val1, polygon.terrainCoords[0])
         resource.chunks[toc_offset >> 2] = polygons_data
 
     def put_palettes(self, palettes, toc_offset=0x44):
@@ -486,11 +498,11 @@ class Resources(object):
         offset = 39
         resource.chunks[toc_offset >> 2] = data[:offset] + background_data + data[offset + 6:]
 
-    def put_terrain(self, terrain_data, toc_offset=0x68):
+    def put_terrain(self, terrainData, toc_offset=0x68):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 0
-        resource.chunks[toc_offset >> 2] = data[:offset] + terrain_data + data[offset + len(terrain_data):]
+        resource.chunks[toc_offset >> 2] = data[:offset] + terrainData + data[offset + len(terrainData):]
 
     def put_visible_angles(self, polygons, toc_offset=0xb0):
         resource = self.chunks[toc_offset >> 2]
@@ -2114,21 +2126,21 @@ class Vertex(object):
             self.texcoord = texcoordFromData(texcoordData)
 
 class Triangle(object):
-    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrain_coords=None):
+    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
         if normalData:
             self.A = Vertex(pointData[0:6], normalData[0:6], texcoordData[0:2])
             self.B = Vertex(pointData[6:12], normalData[6:12], texcoordData[4:6])
             self.C = Vertex(pointData[12:18], normalData[12:18], texcoordData[8:10])
-            self.texture_palette = unpack('B', texcoordData[2:3])[0] & 0xf
-            self.texture_page = unpack('B', texcoordData[6:7])[0] & 0x3
+            self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
+            self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
             self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
             self.unknown3 = unpack('B', texcoordData[3:4])[0]
             self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
             self.unknown4 = unpack('B', texcoordData[7:8])[0]
-            (val1, tx) = unpack('BB', terrain_coords)
+            (val1, tx) = unpack('BB', terrainCoordsData)
             tz = val1 >> 1
-            tlvl = val1 & 0x01
-            self.terrain_coords = (tx, tz, tlvl)
+            tlvl = val1 & 1
+            self.terrainCoords = (tx, tz, tlvl)
         else:
             self.A = Vertex(pointData[0:6])
             self.B = Vertex(pointData[6:12])
@@ -2144,20 +2156,20 @@ class Triangle(object):
 
 
 class Quad(object):
-    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrain_coords=None):
+    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
         if normalData:
             self.A = Vertex(pointData[0:6], normalData[0:6], texcoordData[0:2])
             self.B = Vertex(pointData[6:12], normalData[6:12], texcoordData[4:6])
             self.C = Vertex(pointData[12:18], normalData[12:18], texcoordData[8:10])
             self.D = Vertex(pointData[18:24], normalData[18:24], texcoordData[10:12])
-            self.texture_palette = unpack('B', texcoordData[2:3])[0] & 0xf
-            self.texture_page = unpack('B', texcoordData[6:7])[0] & 0x3
+            self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
+            self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
             self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
             self.unknown3 = unpack('B', texcoordData[3:4])[0]
             self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
             self.unknown4 = unpack('B', texcoordData[7:8])[0]
-            (tyz, tx) = unpack('BB', terrain_coords)
-            self.terrain_coords = (tx, tyz >> 1, tyz & 0x01)
+            (tyz, tx) = unpack('BB', terrainCoordsData)
+            self.terrainCoords = (tx, tyz >> 1, tyz & 0x01)
         else:
             self.A = Vertex(pointData[0:6])
             self.B = Vertex(pointData[6:12])
@@ -2172,19 +2184,6 @@ class Quad(object):
         for index in 'ABCD':
             yield getattr(self, index)
 
-
-def paletteFromData(data):
-    palette = [None] * 16
-    for i in range(16):
-        rgba = RGBA5551.from_buffer_copy(data[i*2:i*2+2])
-        r = rgba.r / 31.
-        g = rgba.g / 31.
-        b = rgba.b / 31.
-        a = rgba.a * 1.
-        if not (r == 0. and g == 0. and b == 0.):
-            a = 1.
-        palette[i]  = (r,g,b,a)
-    return palette
 
 '''
 slope types:
@@ -2215,18 +2214,18 @@ or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets 
 '''
 
 class Tile(object):
-    def __init__(self, tile_data):
-        val0 = unpack('B', tile_data[0:1])[0]
+    def __init__(self, tileData):
+        val0 = unpack('B', tileData[0:1])[0]
         self.surfaceType = val0 & 0x3f
         self.unknown0_6 = (val0 >> 6) & 0x3
-        self.unknown1 = unpack('B', tile_data[1:2])[0]
-        self.height = unpack('B', tile_data[2:3])[0]        # in half-tiles
-        val3 = unpack('B', tile_data[3:4])[0]
+        self.unknown1 = unpack('B', tileData[1:2])[0]
+        self.height = unpack('B', tileData[2:3])[0]        # in half-tiles
+        val3 = unpack('B', tileData[3:4])[0]
         self.slopeHeight = val3 & 0x1f
         self.depth = (val3 >> 5) & 0x7
-        self.slopeType = unpack('B', tile_data[4:5])[0]
-        self.unknown5 = unpack('B', tile_data[5:6])[0]
-        val6 = unpack('B', tile_data[6:7])[0]
+        self.slopeType = unpack('B', tileData[4:5])[0]
+        self.unknown5 = unpack('B', tileData[5:6])[0]
+        val6 = unpack('B', tileData[6:7])[0]
         self.cantCursor = val6 & 1
         self.cantWalk = (val6 >> 1) & 1
         self.unknown6_2 = (val6 >> 2) & 0x3f
@@ -2240,22 +2239,22 @@ class Tile(object):
         # 5 = se top
         # 6 = sw top
         # 7 = nw top
-        self.rotationFlags = unpack('B', tile_data[7:8])[0]
+        self.rotationFlags = unpack('B', tileData[7:8])[0]
 
 class Terrain(object):
-    def __init__(self, terrain_data):
+    def __init__(self, terrainData):
         self.tiles = []
-        (x_count, z_count) = unpack('2B', terrain_data[0:2])
-        self.size = (x_count, z_count)
-        #print("terrain size", x_count, z_count)
+        (sizeX, sizeZ) = unpack('2B', terrainData[0:2])
+        self.size = (sizeX, sizeZ)
+        #print("terrain size", sizeX, sizeZ)
         offset = 2
         for y in range(2):
             level = []
-            for z in range(z_count):
+            for z in range(sizeZ):
                 row = []
-                for x in range(x_count):
-                    tile_data = terrain_data[offset:offset+8]
-                    tile = Tile(tile_data)
+                for x in range(sizeX):
+                    tileData = terrainData[offset:offset+8]
+                    tile = Tile(tileData)
                     #print('tile', y, x, z, tile.height)
                     row.append(tile)
                     offset += 8
@@ -2305,8 +2304,14 @@ class Map(object):
         self.resources.read(self.resource_files)
         self.readPolygons()
 
-        self.color_palettes = [paletteFromData(palette_data) for palette_data in self.resources.get_color_palettes()]
-        self.gray_palettes = [paletteFromData(palette_data) for palette_data in self.resources.get_gray_palettes()]
+        self.color_palettes = [
+            [RGBA5551.binToRGBA(paletteData[i*2:i*2+2]) for i in range(16)]
+            for paletteData in self.resources.get_color_palettes()
+        ]
+        self.gray_palettes = [
+            [RGBA5551.binToRGBA(paletteData[i*2:i*2+2]) for i in range(16)]
+            for paletteData in self.resources.get_gray_palettes()
+        ]
 
         self.dir_light_rgb = [l for l in self.resources.get_dir_light_rgb()]
         self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
@@ -2343,9 +2348,9 @@ class Map(object):
             visangles = ['\x00\x00'] * 512
         normals = self.resources.get_tex_3gon_norm(toc_index)
         texcoords = self.resources.get_tex_3gon_uv(toc_index)
-        terrain_coords = self.resources.get_tex_3gon_terrain_coords(toc_index)
-        for pointData, visangle, normalData, texcoordData, terrain_coord in zip(points, visangles, normals, texcoords, terrain_coords):
-            polygon = Triangle().from_data(pointData, visangle, normalData, texcoordData, terrain_coords=terrain_coord)
+        terrainData = self.resources.get_tex_3gon_terrain_coords(toc_index)
+        for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(points, visangles, normals, texcoords, terrainData):
+            polygon = Triangle().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2357,9 +2362,9 @@ class Map(object):
             visangles = ['\x00\x00'] * 768
         normals = self.resources.get_tex_4gon_norm(toc_index)
         texcoords = self.resources.get_tex_4gon_uv(toc_index)
-        terrain_coords = self.resources.get_tex_4gon_terrain_coords(toc_index)
-        for pointData, visangle, normalData, texcoordData, terrain_coord in zip(points, visangles, normals, texcoords, terrain_coords):
-            polygon = Quad().from_data(pointData, visangle, normalData, texcoordData, terrain_coords=terrain_coord)
+        terrainData = self.resources.get_tex_4gon_terrain_coords(toc_index)
+        for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(points, visangles, normals, texcoords, terrainData):
+            polygon = Quad().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2403,11 +2408,11 @@ class Map(object):
     def put_terrain(self, terrain):
         max_x = len(terrain.tiles[0][0])
         max_z = len(terrain.tiles[0])
-        terrain_data = pack('BB', max_x, max_z)
+        terrainData = pack('BB', max_x, max_z)
         for level in terrain.tiles:
             for row in level:
                 for tile in row:
-                    terrain_data += (''
+                    terrainData += (''
                         + pack('B', (tile.unknown0_6 << 6) | tile.surfaceType)
                         + pack('B', tile.unknown1)
                         + pack('B', tile.height)
@@ -2418,8 +2423,8 @@ class Map(object):
                         + pack('B', tile.unknown6_2)
                     )
             # Skip to second level of terrain data
-            terrain_data += '\x00' * (8 * 256 - 8 * max_x * max_z)
-        self.resources.put_terrain(terrain_data)
+            terrainData += '\x00' * (8 * 256 - 8 * max_x * max_z)
+        self.resources.put_terrain(terrainData)
 
     def put_visible_angles(self, polygons):
         self.resources.put_visible_angles(polygons)
@@ -2578,7 +2583,7 @@ def load(context,
                 if vtxHasTexCoord:
                     verts_tex.append((
                         v.texcoord[0] / 256.,
-                        (s.texture_page + v.texcoord[1] / 256.) / 4.
+                        (s.texturePage + v.texcoord[1] / 256.) / 4.
                     ))
                     verts_nor.append(v.normal)
                 else:
@@ -2599,7 +2604,7 @@ def load(context,
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    matTexNamePerPal[s.texture_palette] if vtxHasTexCoord else matWOTexName,
+                    matTexNamePerPal[s.paletteIndex] if vtxHasTexCoord else matWOTexName,
                     None, # used to be smooth ...
                     None, # used to be object key?
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
