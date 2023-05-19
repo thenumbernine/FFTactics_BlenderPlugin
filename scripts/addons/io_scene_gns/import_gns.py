@@ -2509,34 +2509,10 @@ def load(context,
         # for now lets have 1 material to parallel ganesha / my obj exporter
         # later I can do 1 material per palette or something
 
-        # TODO just write a single greyscale image,
-        # and write the 16 palettes
-        # and set up Graph Editor for dynamically picking the palette
-        # write out each individual 16 palettes
-        imagePerPal = [None] * len(map.color_palettes)
-        for (i, palette) in enumerate(map.color_palettes):
-            imagePerPal[i] = bpy.data.images.new('GNS Texture Palette '+str(i), width=256, height=1024)
-            pix = [0] * (4 * 1024 * 256)
-            for y in range(1024):
-                row = map.textureGreyData[y]
-                for x in range(256):
-                    color = palette[row[x]]
-                    for ch in range(4):
-                        pix[ch + 4 * (x + 256 * y)] = color[ch]
-            imagePerPal[i].pixels = pix
-
-        def makeTexMat():
+        def makeTexMat(name, image):
             # get image ...
             # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-            image = bpy.data.images.new('GNS Texture Master', width=map.textureWidth, height=map.textureHeight)
-            image.pixels = [
-                ch
-                for row in map.textureRGBAData
-                for color in row
-                for ch in color
-            ]
-            matWTexName = 'GNS Material Textured'
-            matWTex = unique_materials[matWTexName] = bpy.data.materials.new(matWTexName)
+            matWTex = unique_materials[name] = bpy.data.materials.new(name)
             matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
             matWTexWrap.use_nodes = True
             matWTexWrap.base_color_texture.image = image
@@ -2556,9 +2532,39 @@ def load(context,
             matWTexWrap.specular = 0.
             matWTexWrap.specular_tint = 0.
             matWTexWrap.roughness = 0.
-            return matWTexName
-        matWTexName = makeTexMat()
+      
+        """
+        matWTexImg = bpy.data.images.new('GNS Texture Master', width=map.textureWidth, height=map.textureHeight)
+        matWTexImg.pixels = [
+            ch
+            for row in map.textureRGBAData
+            for color in row
+            for ch in color
+        ]
+        matWTexName = 'GNS Material Textured'
+        makeTexMat(matWTexName, matWTexImg)
+        """
 
+        # write out each individual 16 palettes
+        imagePerPal = [None] * len(map.color_palettes)
+        matTexNamePerPal = [None] * len(map.color_palettes)
+        for (i, palette) in enumerate(map.color_palettes):
+            imagePerPal[i] = bpy.data.images.new('GNS Texture Palette '+str(i), width=256, height=1024)
+            pix = [0] * (4 * 1024 * 256)
+            for y in range(1024):
+                row = map.textureRGBAData[y]
+                for x in range(256):
+                    color = row[x + 256 * i]
+                    for ch in range(4):
+                        pix[ch + 4 * (x + 256 * y)] = color[ch]
+            imagePerPal[i].pixels = pix
+            matTexNamePerPal[i] = 'GNS Material Tex Pal '+str(i)
+            makeTexMat(matTexNamePerPal[i], imagePerPal[i])
+
+        # TODO just write a single greyscale image,
+        # and write the 16 palettes
+        # and set up Graph Editor for dynamically picking the palette
+        
 
         ### make the material for untextured faces
 
@@ -2592,7 +2598,7 @@ def load(context,
 
                 if vtxHasTexCoord:
                     verts_tex.append((
-                        (v.texcoord[0] / 256. + s.texture_palette) / 17.,
+                        v.texcoord[0] / 256.,
                         (s.texture_page + v.texcoord[1] / 256.) / 4.
                     ))
                     verts_nor.append(v.normal)
@@ -2610,23 +2616,18 @@ def load(context,
                 #if vtxHasTexCoord:
                 face_vert_nor_indices = [vti+0, vti+i, vti+i+1]
                 face_vert_tex_indices = [vti+0, vti+i, vti+i+1]
-
-                face = (
+                faces.append((
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    matWTexName if vtxHasTexCoord else matWOTexName,
+                    matTexNamePerPal[s.texture_palette] if vtxHasTexCoord else matWOTexName,
                     None, # used to be smooth ...
                     None, # used to be object key?
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
-                )
-                faces.append(face)
-
+                ))
+            vi+=n
             #if vtxHasTexCoord:
             vti+=n
-
-            vi+=n
-
 
         loops_vert_idx = tuple(vidx for (face_vert_loc_indices, _, _, _, _, _, _) in faces for vidx in face_vert_loc_indices)
         print('len faces', len(faces))
@@ -2803,8 +2804,9 @@ def load(context,
             # calculate lightObj Euler angles by dir_light_norm
             # TODO figure out which rotates which...
             dir = map.dir_light_norm[i]
+            print('light dir', dir)
             eulerAngles = (
-                math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), -dir[1]), # pitch
+                math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), dir[1]), # pitch
                 math.atan2(dir[2], dir[0]),  # yaw
                 0
                )
