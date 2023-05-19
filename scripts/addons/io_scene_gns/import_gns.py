@@ -2092,7 +2092,7 @@ def atou16(data):
 def vertexFromData(data):
     return unpack('<3h', data)
 
-# this is stored as bytes and transformed later in uv_to_panda2
+# this is stored as bytes and transformed later based on palette, etc 
 def texcoordFromData(data):
     return unpack('<2B', data)
 
@@ -2188,7 +2188,7 @@ class Tile(object):
         self.unknown1 = (val1 >> 6) & 0x3
         self.surface_type = (val1 >> 0) & 0x3f
         self.unknown2 = unpack('B', tile_data[1:2])[0]
-        self.height = unpack('B', tile_data[2:3])[0]
+        self.height = unpack('B', tile_data[2:3])[0]        # in half-tiles
         val4 = unpack('B', tile_data[3:4])[0]
         self.depth = (val4 >> 5) & 0x7
         self.slope_height = (val4 >> 0) & 0x1f
@@ -2204,6 +2204,8 @@ class Terrain(object):
     def __init__(self, terrain_data):
         self.tiles = []
         (x_count, z_count) = unpack('2B', terrain_data[0:2])
+        self.size = (x_count, z_count)
+        print("terrain size", x_count, z_count)
         offset = 2
         for y in range(2):
             level = []
@@ -2212,6 +2214,7 @@ class Terrain(object):
                 for x in range(x_count):
                     tile_data = terrain_data[offset:offset+8]
                     tile = Tile(tile_data)
+                    print('tile', y, x, z, tile.height)
                     row.append(tile)
                     offset += 8
                 level.append(row)
@@ -2255,7 +2258,7 @@ class Map(object):
         print('dir_light_norm: '+str(self.dir_light_norm))
         self.amb_light_rgb = self.resources.get_amb_light_rgb()
         self.background = self.resources.get_background()
-        #self.terrain = Terrain(self.resources.get_terrain())
+        self.terrain = Terrain(self.resources.get_terrain())
 
     # check.
     def readPolygons(self):
@@ -2462,16 +2465,7 @@ def load(context,
         material_libs = set()  # filenames to material libs this OBJ uses
         vertex_groups = {}
 
-        # Context variables
-        context_material = None
-        context_smooth_group = None
-        context_object_key = None
-        context_object_obpart = None
-        context_vgroup = None
-
-        use_default_material = False
         unique_materials = {}
-        unique_smooth_groups = {}
 
         progress.enter_substeps(3, "Parsing GNS file...")
 
@@ -2481,7 +2475,7 @@ def load(context,
         if bpy.ops.object.select_all.poll():
             bpy.ops.object.select_all(action='DESELECT')
 
-        new_objects = []  # put new objects here
+        newObjects = []  # put new objects here
 
 
         ### make the material for textured faces
@@ -2556,14 +2550,9 @@ def load(context,
         for name, index in material_mapping.items():
             materials[index] = unique_materials[name]
 
-        me = bpy.data.meshes.new(filename)
+        mesh = bpy.data.meshes.new(filename)
         for material in materials:
-            me.materials.append(material)
-
-
-        uv_to_panda2 = lambda page, pal, uv: (
-            (uv[0] / 256. + pal) / 17.,
-            (page + uv[1] / 256.) / 4.)
+            mesh.materials.append(material)
 
         vi = 0
         vti = 0
@@ -2575,7 +2564,10 @@ def load(context,
                 verts_loc.append(v.point)
 
                 if vtxHasTexCoord:
-                    verts_tex.append(uv_to_panda2(s.texture_page, s.texture_palette, v.texcoord))
+                    verts_tex.append((
+                        (v.texcoord[0] / 256. + s.texture_palette) / 17.,
+                        (s.texture_page + v.texcoord[1] / 256.) / 4.
+                    ))
                     verts_nor.append(v.normal)
                 else:
                     # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
@@ -2597,8 +2589,8 @@ def load(context,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
                     matWTexName if vtxHasTexCoord else matWOTexName,
-                    context_smooth_group,
-                    context_object_key,
+                    None, # used to be smooth ...
+                    None, # used to be object key?
                     [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
                 )
                 faces.append(face)
@@ -2617,11 +2609,11 @@ def load(context,
         edges = []
         tot_loops = 3 * len(faces)
 
-        me.polygons.add(len(faces))
-        me.loops.add(tot_loops)
-        me.vertices.add(len(verts_loc))
+        mesh.polygons.add(len(faces))
+        mesh.loops.add(tot_loops)
+        mesh.vertices.add(len(verts_loc))
 
-        me.vertices.foreach_set("co", unpack_list(verts_loc))
+        mesh.vertices.foreach_set("co", unpack_list(verts_loc))
 
         faces_loop_start = []
         lidx = 0
@@ -2635,70 +2627,76 @@ def load(context,
         print('len faces', len(faces))
         print('len loops_vert_idx', len(loops_vert_idx))
 
-        me.loops.foreach_set("vertex_index", loops_vert_idx)
-        me.polygons.foreach_set("loop_start", faces_loop_start)
-        me.polygons.foreach_set("loop_total", faces_loop_total)
+        mesh.loops.foreach_set("vertex_index", loops_vert_idx)
+        mesh.polygons.foreach_set("loop_start", faces_loop_start)
+        mesh.polygons.foreach_set("loop_total", faces_loop_total)
 
         faces_ma_index = tuple(material_mapping[context_material] for (_, _, _, context_material, _, _, _) in faces)
-        me.polygons.foreach_set("material_index", faces_ma_index)
+        mesh.polygons.foreach_set("material_index", faces_ma_index)
 
-        faces_use_smooth = tuple(bool(context_smooth_group) for (_, _, _, _, context_smooth_group, _, _) in faces)
-        me.polygons.foreach_set("use_smooth", faces_use_smooth)
+        mesh.polygons.foreach_set("use_smooth", [False] * len(faces))
 
-        if verts_nor and me.loops:
-            # Note: we store 'temp' normals in loops, since validate() may alter final mesh,
-            #       we can only set custom lnors *after* calling it.
-            me.create_normals_split()
+        if verts_nor and mesh.loops:
+            mesh.create_normals_split()
             loops_nor = tuple(no for (_, face_vert_nor_indices, _, _, _, _, _) in faces
                                  for face_noidx in face_vert_nor_indices
                                  for no in verts_nor[face_noidx])
-            me.loops.foreach_set("normal", loops_nor)
+            mesh.loops.foreach_set("normal", loops_nor)
 
-        if verts_tex and me.polygons:
-            # Some files Do not explicitly write the 'v' value when it's 0.0, see T68249...
-            verts_tex = [uv if len(uv) == 2 else uv + [0.0] for uv in verts_tex]
-            me.uv_layers.new(do_init=False)
+        if verts_tex and mesh.polygons:
+            mesh.uv_layers.new(do_init=False)
             loops_uv = tuple(uv for (_, _, face_vert_tex_indices, _, _, _, _) in faces
                                 for face_uvidx in face_vert_tex_indices
                                 for uv in verts_tex[face_uvidx])
-            me.uv_layers[0].data.foreach_set("uv", loops_uv)
+            mesh.uv_layers[0].data.foreach_set("uv", loops_uv)
 
         use_edges=True
         use_edges = use_edges and bool(edges)
         if use_edges:
-            me.edges.add(len(edges))
+            mesh.edges.add(len(edges))
             # edges should be a list of (a, b) tuples
-            me.edges.foreach_set("vertices", unpack_list(edges))
+            mesh.edges.foreach_set("vertices", unpack_list(edges))
 
-        me.validate(clean_customdata=False)  # *Very* important to not remove lnors here!
-        me.update(calc_edges=use_edges, calc_edges_loose=use_edges)
+        mesh.validate(clean_customdata=False)  # *Very* important to not remove lnors here!
+        mesh.update(calc_edges=use_edges, calc_edges_loose=use_edges)
 
         if verts_nor:
-            clnors = array.array('f', [0.0] * (len(me.loops) * 3))
-            me.loops.foreach_get("normal", clnors)
-
-            #if not unique_smooth_groups:
-            me.polygons.foreach_set("use_smooth", [False] * len(me.polygons))
-
-            me.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
+            clnors = array.array('f', [0.0] * (len(mesh.loops) * 3))
+            mesh.loops.foreach_get("normal", clnors)
+            mesh.polygons.foreach_set("use_smooth", [False] * len(mesh.polygons))
+            mesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
             # use_auto_smooth = True looks too dark ... thanks to all those zero normals I'm betting?
-            me.use_auto_smooth = False
+            mesh.use_auto_smooth = False
 
-        ob = bpy.data.objects.new(me.name, me)
-        new_objects.append(ob)
+        meshObj = bpy.data.objects.new(mesh.name, mesh)
+        newObjects.append(meshObj)
 
-        # Create the vertex groups. No need to have the flag passed here since we test for the
-        # content of the vertex_groups. If the user selects to NOT have vertex groups saved then
-        # the following test will never run
         for group_name, group_indices in vertex_groups.items():
-            group = ob.vertex_groups.new(name=group_name.decode('utf-8', "replace"))
+            group = meshObj.vertex_groups.new(name=group_name.decode('utf-8', "replace"))
             group.add(group_indices, 1.0, 'REPLACE')
 
 
-        view_layer = context.view_layer
-        collection = view_layer.active_layer_collection.collection
+        ### create the terrain
 
+        tmesh = bpy.data.meshes.new(filename + ' Terrain')
+        tmeshVtxs = []
+        tmeshEdges = []
+        tmeshFaces = []
+        for y in range(2):
+            for z in range(map.terrain.size[1]):
+                for x in range(map.terrain.size[0]):
+                    tile = map.terrain.tiles[y][z][x]
+                    vi = len(tmeshVtxs)
+                    tmeshFaces.append([vi+0, vi+1, vi+2, vi+3])
+                    tmeshVtxs.append((x, -tile.height * .5, z))
+                    tmeshVtxs.append((x+1, -tile.height * .5, z))
+                    tmeshVtxs.append((x+1, -tile.height * .5, z+1))
+                    tmeshVtxs.append((x, -tile.height * .5, z+1))
+        tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
+        tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
+        newObjects.append(tmeshObj)
         
+
         # directional lights
         # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
         for i in range(3):
@@ -2711,19 +2709,18 @@ def load(context,
             # hmm, why doesn't setting location change anything?
             # I know, I know, sunlight has no location.  but its blender object does. they're all pooled at the origin upon level import.  I want them spaced out so they are easier to distinguish/click on.
             lightObj.location = (
-                (map.bbox[0][0] + i) / global_scale_x,
+                map.bbox[0][0] / global_scale_x + i,
                 map.bbox[0][1] / global_scale_y,
                 map.bbox[0][2] / global_scale_z
             )
-            # TODO calculate lightObj Euler angles by dir_light_norm
+            # calculate lightObj Euler angles by dir_light_norm
+            # TODO figure out which rotates which...
             dir = map.dir_light_norm[i]
-            # TODO why doesn't this set anything
             lightObj.rotation_euler = (
-                math.atan2(dir[1], math.sqrt(dir[0]*dir[0] + dir[2]*dir[2])),
-                0,
-                math.atan2(dir[2], dir[0]))
-            new_objects.append(lightObj)
-
+                math.atan2(-dir[1], math.sqrt(dir[0]*dir[0] + dir[2]*dir[2])), # pitch
+                math.atan2(dir[2], dir[0]),  # yaw
+                0)
+            newObjects.append(lightObj)
 
         # ambient light?  in blender?
         # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
@@ -2743,21 +2740,29 @@ def load(context,
         #  and why did the goblin turn on the stove?
         # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
 
-        # Create new obj
-        for obj in new_objects:
+        ### Create new objects
+        
+        view_layer = context.view_layer
+        collection = view_layer.active_layer_collection.collection
+        
+        for obj in newObjects:
             collection.objects.link(obj)
             obj.select_set(True)
 
             # apply up/fwd transform
             # setting this override any previous location / rotation_euler set
             # how can we just apply this transform to the previous transform?
+            # maybe https://blender.stackexchange.com/questions/27667/incorrect-matrix-world-after-transformation ?
+            # ... says you gotta call view_layer.update() after setting location / rotation_euler / scale ...
+            # ... sooo ... what order to set all the tranforms ...
             obj.matrix_world = global_matrix
 
         view_layer.update()
 
-        # TODO before matrix_world?  as matrix_world?
-        for obj in new_objects:
-            obj.scale = 1./global_scale_x, 1./global_scale_y, 1./global_scale_z
+        # TODO .... 
+        # I want the meshObj to be scaled (1/28, 1/24, 1/28) compared to the tmesh obj and lights
+        # and then I want both / all to be scaled according to the user
+        meshObj.scale = 1./global_scale_x, 1./global_scale_y, 1./global_scale_z
 
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
