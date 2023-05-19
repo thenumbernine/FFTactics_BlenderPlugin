@@ -30,9 +30,9 @@ TODO:
 - separate the indexed-texture from the palettes, and make palettes somehow easily swappable in blender.
 - I'm handling ambient via assigning it to the world background color.  is this a good thing?
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
-- background gradients.
-- light directions.
-- terrain.
+- light directions as blender-sun-light rotations, and just figuring out blender's transform system.
+- background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
+- terrain slopes and attributes.
 - exporting.
 
 ## Sources:
