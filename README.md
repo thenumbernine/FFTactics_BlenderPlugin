@@ -2,6 +2,7 @@
 
 This is modified heavily from the JustinMarshall98 Ganesha Python version, which itself was modified from the Gomtuu Ganesha Python version.
 It was convenient that Blender plugins are written in Python.
+It's also borrowing a lot of wisdom from the C# port, GaneshaDx.
 
 ![example](ex3.png)
 
@@ -37,4 +38,5 @@ TODO:
 
 ## Sources:
 
-https://github.com/JustinMarshall98/Ganesha
+- https://github.com/JustinMarshall98/Ganesha
+- https://github.com/Garmichael/GaneshaDx

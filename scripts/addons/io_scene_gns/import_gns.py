@@ -2182,17 +2182,37 @@ def paletteFromData(data):
         palette[i]  = (r,g,b,a)
     return palette
 
+'''
+slope types:
+0x00	00000000 Flat
+0x25	00100101 Incline S
+0x85	10000101 Incline N
+0x52	01010010 Incline E
+0x58	01011000 Incline W
+
+0x41	01000001 Convex NE
+0x11	00010001 Convex SE
+0x14	00010100 Convex SW
+0x44	01000100 Convex NW
+
+0x96	10010110 Concave NE
+0x66	01100110 Concave SE
+0x69	01101001 Concave SW
+0x99	10011001 Concave NW
+using GaneshaDx's slope stuff for slope stuff
+'''
+
 class Tile(object):
     def __init__(self, tile_data):
         val1 = unpack('B', tile_data[0:1])[0]
         self.unknown1 = (val1 >> 6) & 0x3
-        self.surface_type = (val1 >> 0) & 0x3f
+        self.surfaceType = (val1 >> 0) & 0x3f
         self.unknown2 = unpack('B', tile_data[1:2])[0]
         self.height = unpack('B', tile_data[2:3])[0]        # in half-tiles
         val4 = unpack('B', tile_data[3:4])[0]
         self.depth = (val4 >> 5) & 0x7
-        self.slope_height = (val4 >> 0) & 0x1f
-        self.slope_type = unpack('B', tile_data[4:5])[0]
+        self.slopeHeight = (val4 >> 0) & 0x1f
+        self.slopeType = unpack('B', tile_data[4:5])[0]
         self.unknown3 = unpack('B', tile_data[5:6])[0]
         val7 = unpack('B', tile_data[6:7])[0]
         self.unknown4 = (val7 >> 2) & 0x3f
@@ -2390,7 +2410,7 @@ class Map(object):
             for x in range(128):
                 pix1 = texture[y][x*2]
                 pix2 = texture[y][x*2 + 1]
-                pair = pack('B', (pix1 << 0) + (pix2 << 4))
+                pair = pack('B', (pix1 << 0) | (pix2 << 4))
                 texture_data += pair
         self.texture.write(texture_data)
 
@@ -2402,15 +2422,15 @@ class Map(object):
             for row in level:
                 for tile in row:
                     tile_data = ''
-                    val1 = (tile.unknown1 << 6) + (tile.surface_type << 0)
+                    val1 = (tile.unknown1 << 6) | (tile.surfaceType << 0)
                     tile_data += pack('B', val1)
                     tile_data += pack('B', tile.unknown2)
                     tile_data += pack('B', tile.height)
-                    val4 = (tile.depth << 5) + (tile.slope_height << 0)
+                    val4 = (tile.depth << 5) | (tile.slopeHeight << 0)
                     tile_data += pack('B', val4)
-                    tile_data += pack('B', tile.slope_type)
+                    tile_data += pack('B', tile.slopeType)
                     tile_data += pack('B', tile.unknown3)
-                    val7 = (tile.unknown4 << 2) + (tile.cant_walk << 1) + (tile.cant_cursor << 0)
+                    val7 = (tile.unknown4 << 2) | (tile.cant_walk << 1) | (tile.cant_cursor << 0)
                     tile_data += pack('B', val7)
                     tile_data += pack('B', tile.unknown5)
 
@@ -2677,6 +2697,20 @@ def load(context,
 
 
         ### create the terrain
+      
+        # vertexes of a [-.5, .5]^2 quad
+        quadVtxs = [
+            [-.5, -.5],
+            [-.5, .5],
+            [.5, .5],
+            [.5, -.5]
+        ]
+        liftPerVertPerSlopeType = [
+            [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
+            [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
+            [0x85, 0x52, 0x41, 0x96, 0x66, 0x99],
+            [0x52, 0x25, 0x11, 0x96, 0x66, 0x69],
+        ]
 
         tmesh = bpy.data.meshes.new(filename + ' Terrain')
         tmeshVtxs = []
@@ -2688,10 +2722,12 @@ def load(context,
                     tile = map.terrain.tiles[y][z][x]
                     vi = len(tmeshVtxs)
                     tmeshFaces.append([vi+0, vi+1, vi+2, vi+3])
-                    tmeshVtxs.append((x, -tile.height * .5, z))
-                    tmeshVtxs.append((x+1, -tile.height * .5, z))
-                    tmeshVtxs.append((x+1, -tile.height * .5, z+1))
-                    tmeshVtxs.append((x, -tile.height * .5, z+1))
+                    for (i, q) in enumerate(quadVtxs):
+                        tmeshVtxs.append((
+                            x + .5 + q[0],
+                            -.5 * (tile.height + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
+                            z + .5 + q[1]
+                        ))
         tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
         newObjects.append(tmeshObj)
