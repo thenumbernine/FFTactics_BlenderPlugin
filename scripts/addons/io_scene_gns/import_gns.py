@@ -2165,14 +2165,15 @@ class Quad(object):
 
 def paletteFromData(data):
     palette = [None] * 16
+    mask = (1 << 5) - 1
     for i in range(16):
         rgba = unpack('H', data[i*2:i*2+2])[0]
-        r = (rgba >> 0) & 0x1f
-        g = (rgba >> 5) & 0x1f
-        b = (rgba >> 10) & 0x1f
-        a = (rgba >> 15) & 1
+        r = ((rgba >> 0) & mask) / float(mask)
+        g = ((rgba >> 5) & mask) / float(mask)
+        b = ((rgba >> 10) & mask) / float(mask)
+        a = float((rgba >> 15) & 1)
         if not (r == 0 and g == 0 and b == 0):
-            a = 1
+            a = 1.
         palette[i]  = (r,g,b,a)
     return palette
 
@@ -2314,7 +2315,7 @@ class Map(object):
     def expandTexture(self):
         # expand the 8-bits into separate 4-bits into an image double array
         # this isn't grey, it's indexed into one of the 16 palettes.
-        self.textureGreyData = []       # [y][x] in [0,15] integers
+        self.textureIndexedData = []       # [y][x] in [0,15] integers
         for y in range(1024):
             dstrow = []
             for x in range(128):
@@ -2324,39 +2325,7 @@ class Map(object):
                 pix2 = (pair >> 4) & 0xf
                 dstrow.append(pix1)
                 dstrow.append(pix2)
-            self.textureGreyData.append(dstrow)
-
-        # colors[palette number][color number 0..15] = [0,1] real
-        colors = []
-        for (i, palette) in enumerate(self.color_palettes):
-            colors.append([])
-            for srcc in palette:
-                dstc = (
-                    srcc[0]/31.,    # [0,255]
-                    srcc[1]/31.,
-                    srcc[2]/31.,
-                    srcc[3]
-                )
-                colors[i].append(dstc)
-
-        # holds the indexed texture with each of the 16 palettes applied, then last is a greyscale palette
-        self.textureWidth = 17*256
-        self.textureHeight = 1024
-        self.textureRGBAData = []    # [y][x][channel] in [0,1] real
-        for y in range(1024):
-            dstrow = []
-            srcrow = self.textureGreyData[y]
-            # first append all palettes
-            for (i, palette) in enumerate(self.color_palettes):
-                for x in range(256):
-                    dstrow.append(colors[i][srcrow[x]])
-            # last append greyscale ... why?
-            for x in range(256):
-                c = srcrow[x]/15.        #[0,255]
-                dstrow.append((c,c,c,1.))
-            self.textureRGBAData.append(dstrow)
-            assert len(dstrow) == self.textureWidth
-        assert len(self.textureRGBAData) == self.textureHeight
+            self.textureIndexedData.append(dstrow)
 
     # check.
     def get_tex_3gon(self, toc_index=0x40):
@@ -2534,15 +2503,14 @@ def load(context,
             matWTexWrap.roughness = 0.
       
         """
-        matWTexImg = bpy.data.images.new('GNS Texture Master', width=map.textureWidth, height=map.textureHeight)
-        matWTexImg.pixels = [
-            ch
-            for row in map.textureRGBAData
+        matTexIndexedImg = bpy.data.images.new('GNS Texture Indexed', width=map.textureWidth, height=map.textureHeight)
+        matTexIndexedImg.pixels = [
+            color
+            for row in map.textureIndexedData
             for color in row
-            for ch in color
         ]
-        matWTexName = 'GNS Material Textured'
-        makeTexMat(matWTexName, matWTexImg)
+        matTexIndexedName = 'GNS Material Textured'
+        makeTexMat(matTexIndexedName, matTexIndexedImg)
         """
 
         # write out each individual 16 palettes
@@ -2550,14 +2518,12 @@ def load(context,
         matTexNamePerPal = [None] * len(map.color_palettes)
         for (i, palette) in enumerate(map.color_palettes):
             imagePerPal[i] = bpy.data.images.new('GNS Texture Palette '+str(i), width=256, height=1024)
-            pix = [0] * (4 * 1024 * 256)
-            for y in range(1024):
-                row = map.textureRGBAData[y]
-                for x in range(256):
-                    color = row[x + 256 * i]
-                    for ch in range(4):
-                        pix[ch + 4 * (x + 256 * y)] = color[ch]
-            imagePerPal[i].pixels = pix
+            imagePerPal[i].pixels = [
+                ch
+                for row in map.textureIndexedData
+                for colorIndex in row
+                for ch in palette[colorIndex]
+            ]
             matTexNamePerPal[i] = 'GNS Material Tex Pal '+str(i)
             makeTexMat(matTexNamePerPal[i], imagePerPal[i])
 
