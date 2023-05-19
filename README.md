@@ -30,6 +30,7 @@ TODO:
 - separate the indexed-texture from the palettes, and make palettes somehow easily swappable in blender.
 - I'm handling ambient via assigning it to the world background color.  is this a good thing?
 - background gradient somehow.
+- preserve quads? right now it triangulates everything, but GNS supports tris and quads.
 - terrain.
 - exporting.
 

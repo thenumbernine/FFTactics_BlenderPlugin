@@ -90,8 +90,9 @@ class Resource(object):
         print(dateTime)
         old_size = self.size
         self.size = len(data)
-        old_sectors = int(math.ceil(old_size / 2048.0))
-        new_sectors = int(math.ceil(self.size / 2048.0))
+        countSectors = lambda size: (size >> 11) + (1 if size & ((1<<11)-1) else 0)
+        old_sectors = countSectors(old_size)
+        new_sectors = countSectors(self.size)
         if new_sectors > old_sectors:
             print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
         elif new_sectors < old_sectors:
@@ -190,8 +191,8 @@ class Resources(object):
         (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
         offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24
         for i in range(tri_count):
-            texcoord_data = data[offset:offset+10]
-            yield texcoord_data
+            texcoordData = data[offset:offset+10]
+            yield texcoordData
             offset += 10
 
     # check.
@@ -201,8 +202,8 @@ class Resources(object):
         (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
         offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24 + tri_count * 10
         for i in range(quad_count):
-            texcoord_data = data[offset:offset+12]
-            yield texcoord_data
+            texcoordData = data[offset:offset+12]
+            yield texcoordData
             offset += 12
 
     # check.
@@ -310,9 +311,9 @@ class Resources(object):
             # then what are the top 5 bits?
             mask = (1<<11)-1
             yield (
-                (uint16(data[ofs:ofs+2]) & mask) / float(mask),
-                (uint16(data[ofs+6:ofs+8]) & mask) / float(mask),
-                (uint16(data[ofs+12:ofs+14]) & mask) / float(mask)
+                (atou16(data[ofs:ofs+2]) & mask) / float(mask),
+                (atou16(data[ofs+6:ofs+8]) & mask) / float(mask),
+                (atou16(data[ofs+12:ofs+14]) & mask) / float(mask)
             )
             ofs += 2
 
@@ -386,54 +387,48 @@ class Resources(object):
         polygons_data = pack('<4H', *[len(x) for x in [tex_tri, tex_quad, untex_tri, untex_quad]])
         for polygon in tex_tri:
             for abc in ['A', 'B', 'C']:
-                coords = getattr(polygon, abc).point.coords
-                polygons_data += pack('<3h', *coords)
+                polygons_data += pack('<3h', *getattr(polygon, abc).point)
         for polygon in tex_quad:
             for abc in ['A', 'B', 'C', 'D']:
-                coords = getattr(polygon, abc).point.coords
-                polygons_data += pack('<3h', *coords)
+                polygons_data += pack('<3h', *getattr(polygon, abc).point)
         for polygon in untex_tri:
             for abc in ['A', 'B', 'C']:
-                coords = getattr(polygon, abc).point.coords
-                polygons_data += pack('<3h', *coords)
+                polygons_data += pack('<3h', *getattr(polygon, abc).point)
         for polygon in untex_quad:
             for abc in ['A', 'B', 'C', 'D']:
-                coords = getattr(polygon, abc).point.coords
-                polygons_data += pack('<3h', *coords)
+                polygons_data += pack('<3h', *getattr(polygon, abc).point)
         for polygon in tex_tri:
             for abc in ['A', 'B', 'C']:
-                coords = getattr(polygon, abc).normal.coords
-                polygons_data += pack('<3h', *[int(x * 4096) for x in coords])
+                polygons_data += pack('<3h', *[int(x * 4096.) for x in getattr(polygon, abc).normal])
         for polygon in tex_quad:
             for abc in ['A', 'B', 'C', 'D']:
-                coords = getattr(polygon, abc).normal.coords
-                polygons_data += pack('<3h', *[int(x * 4096) for x in coords])
+                polygons_data += pack('<3h', *[int(x * 4096.) for x in getattr(polygon, abc).normal])
         for polygon in tex_tri:
             polygon_data = ''
             if polygon.unknown2 == 0:
                 polygon.unknown2 = 120
                 polygon.unknown3 = 3
-            polygon_data += pack('BB', *polygon.A.texcoord.coords)
+            polygon_data += pack('BB', *polygon.A.texcoord)
             val3 = (polygon.unknown1 << 4) + polygon.texture_palette
             polygon_data += pack('BB', *[val3, polygon.unknown2])
-            polygon_data += pack('BB', *polygon.B.texcoord.coords)
+            polygon_data += pack('BB', *polygon.B.texcoord)
             val7 = (polygon.unknown3 << 2) + polygon.texture_page
             polygon_data += pack('BB', *[val7, polygon.unknown4])
-            polygon_data += pack('BB', *polygon.C.texcoord.coords)
+            polygon_data += pack('BB', *polygon.C.texcoord)
             polygons_data += polygon_data
         for polygon in tex_quad:
             polygon_data = ''
             if polygon.unknown2 == 0:
                 polygon.unknown2 = 120
                 polygon.unknown3 = 3
-            polygon_data += pack('BB', *polygon.A.texcoord.coords)
+            polygon_data += pack('BB', *polygon.A.texcoord)
             val3 = (polygon.unknown1 << 4) + polygon.texture_palette
             polygon_data += pack('BB', *[val3, polygon.unknown2])
-            polygon_data += pack('BB', *polygon.B.texcoord.coords)
+            polygon_data += pack('BB', *polygon.B.texcoord)
             val7 = (polygon.unknown3 << 2) + polygon.texture_page
             polygon_data += pack('BB', *[val7, polygon.unknown4])
-            polygon_data += pack('BB', *polygon.C.texcoord.coords)
-            polygon_data += pack('BB', *polygon.D.texcoord.coords)
+            polygon_data += pack('BB', *polygon.C.texcoord)
+            polygon_data += pack('BB', *polygon.D.texcoord)
             polygons_data += polygon_data
         for polygon in untex_tri:
             polygons_data += polygon.unknown5
@@ -2091,110 +2086,87 @@ class GNS(object):
 
 ################################ fft/map/__init__.py ################################
 
-# fixed-point precision, 11 bits of fraction
-# possible values [-16, 15.99951171875]
-def uint16(str):
-    return unpack('<H', str)[0]
+def atou16(data):
+    return unpack('<H', data)[0]
 
-class PointXYZ(object):
-    def __init__(self, x, y, z):
-        (self.X, self.Y, self.Z) = x, y, z
+def vertexFromData(data):
+    return unpack('<3h', data)
 
-    @staticmethod
-    def from_data(data):
-        return PointXYZ(*unpack('<3h', data))
+# this is stored as bytes and transformed later in uv_to_panda2
+def texcoordFromData(data):
+    return unpack('<2B', data)
 
-    def coords(self):
-        return (self.X, self.Y, self.Z)
-
-class PointUV(object):
-    def __init__(self, u, v):
-        (self.U, self.V) = u, v
-
-    @staticmethod
-    def from_data(data):
-        return PointUV(*unpack('<2B', data))
-
-    def coords(self):
-        return (self.U, self.V)
-
-class VectorXYZ(object):
-    def __init__(self, x, y, z):
-        (self.X, self.Y, self.Z) = x, y, z
-
-    @staticmethod
-    def from_data(data):
-        return VectorXYZ(*[x / 4096. for x in unpack('<3h', data)])
-
-    def coords(self):
-        return (self.X, self.Y, self.Z)
+def normalFromData(data):
+    x,y,z = unpack('<3h', data)
+    s = 1./4096.
+    return (s*x, s*y, s*z)
 
 class Vertex(object):
-    def __init__(self, point_data, normal_data=None, texcoord_data=None):
-        self.point = PointXYZ.from_data(point_data)
-        if normal_data:
-            self.normal = VectorXYZ.from_data(normal_data)
-        if texcoord_data:
-            self.texcoord = PointUV.from_data(texcoord_data)
+    def __init__(self, point_data, normalData=None, texcoordData=None):
+        self.point = vertexFromData(point_data)
+        if normalData:
+            self.normal = normalFromData(normalData)
+        if texcoordData:
+            self.texcoord = texcoordFromData(texcoordData)
 
 class Triangle(object):
-    def from_data(self, point, visangle, normal=None, texcoord=None, unknown5=None, terrain_coords=None):
-        if normal:
-            self.A = Vertex(point[0:6], normal[0:6], texcoord[0:2])
-            self.B = Vertex(point[6:12], normal[6:12], texcoord[4:6])
-            self.C = Vertex(point[12:18], normal[12:18], texcoord[8:10])
-            self.texture_palette = unpack('B', texcoord[2:3])[0] & 0xf
-            self.texture_page = unpack('B', texcoord[6:7])[0] & 0x3
-            self.unknown1 = (unpack('B', texcoord[2:3])[0] >> 4) & 0xf
-            self.unknown2 = unpack('B', texcoord[3:4])[0]
-            self.unknown3 = (unpack('B', texcoord[6:7])[0] >> 2) & 0x3f
-            self.unknown4 = unpack('B', texcoord[7:8])[0]
+    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrain_coords=None):
+        if normalData:
+            self.A = Vertex(pointData[0:6], normalData[0:6], texcoordData[0:2])
+            self.B = Vertex(pointData[6:12], normalData[6:12], texcoordData[4:6])
+            self.C = Vertex(pointData[12:18], normalData[12:18], texcoordData[8:10])
+            self.texture_palette = unpack('B', texcoordData[2:3])[0] & 0xf
+            self.texture_page = unpack('B', texcoordData[6:7])[0] & 0x3
+            self.unknown1 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
+            self.unknown2 = unpack('B', texcoordData[3:4])[0]
+            self.unknown3 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
+            self.unknown4 = unpack('B', texcoordData[7:8])[0]
             (val1, tx) = unpack('BB', terrain_coords)
             tz = val1 >> 1
             tlvl = val1 & 0x01
             self.terrain_coords = (tx, tz, tlvl)
         else:
-            self.A = Vertex(point[0:6])
-            self.B = Vertex(point[6:12])
-            self.C = Vertex(point[12:18])
+            self.A = Vertex(pointData[0:6])
+            self.B = Vertex(pointData[6:12])
+            self.C = Vertex(pointData[12:18])
             self.unknown5 = unknown5
         vis = unpack('H', visangle)[0]
         self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
         return self
 
     def vertices(self):
-        for point in 'ABC':
-            yield getattr(self, point)
+        for index in 'ABC':
+            yield getattr(self, index)
 
 
 class Quad(object):
-    def from_data(self, point, visangle, normal=None, texcoord=None, unknown5=None, terrain_coords=None):
-        if normal:
-            self.A = Vertex(point[0:6], normal[0:6], texcoord[0:2])
-            self.B = Vertex(point[6:12], normal[6:12], texcoord[4:6])
-            self.C = Vertex(point[12:18], normal[12:18], texcoord[8:10])
-            self.D = Vertex(point[18:24], normal[18:24], texcoord[10:12])
-            self.texture_palette = unpack('B', texcoord[2:3])[0] & 0xf
-            self.texture_page = unpack('B', texcoord[6:7])[0] & 0x3
-            self.unknown1 = (unpack('B', texcoord[2:3])[0] >> 4) & 0xf
-            self.unknown2 = unpack('B', texcoord[3:4])[0]
-            self.unknown3 = (unpack('B', texcoord[6:7])[0] >> 2) & 0x3f
-            self.unknown4 = unpack('B', texcoord[7:8])[0]
+    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrain_coords=None):
+        if normalData:
+            self.A = Vertex(pointData[0:6], normalData[0:6], texcoordData[0:2])
+            self.B = Vertex(pointData[6:12], normalData[6:12], texcoordData[4:6])
+            self.C = Vertex(pointData[12:18], normalData[12:18], texcoordData[8:10])
+            self.D = Vertex(pointData[18:24], normalData[18:24], texcoordData[10:12])
+            self.texture_palette = unpack('B', texcoordData[2:3])[0] & 0xf
+            self.texture_page = unpack('B', texcoordData[6:7])[0] & 0x3
+            self.unknown1 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
+            self.unknown2 = unpack('B', texcoordData[3:4])[0]
+            self.unknown3 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
+            self.unknown4 = unpack('B', texcoordData[7:8])[0]
             (tyz, tx) = unpack('BB', terrain_coords)
             self.terrain_coords = (tx, tyz >> 1, tyz & 0x01)
         else:
-            self.A = Vertex(point[0:6])
-            self.B = Vertex(point[6:12])
-            self.C = Vertex(point[12:18])
-            self.D = Vertex(point[18:24])
+            self.A = Vertex(pointData[0:6])
+            self.B = Vertex(pointData[6:12])
+            self.C = Vertex(pointData[12:18])
+            self.D = Vertex(pointData[18:24])
             self.unknown5 = unknown5
         vis = unpack('H', visangle)[0]
         self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
         return self
 
     def vertices(self):
-        for point in 'ABCD':
-            yield getattr(self, point)
+        for index in 'ABCD':
+            yield getattr(self, index)
 
 
 def paletteFromData(data):
@@ -2209,20 +2181,6 @@ def paletteFromData(data):
             a = 1
         palette[i]  = (r,g,b,a)
     return palette
-
-class Ambient_Light(object):
-    def __init__(self, data):
-        self.color = unpack('3B', data)
-
-class Directional_Light(object):
-    def __init__(self, color_data, direction_data):
-        self.color = unpack('3h', color_data)
-        self.direction = VectorXYZ.from_data(direction_data)
-
-class Background(object):
-    def __init__(self, color_data):
-        self.color1 = unpack('3B', color_data[0:3])
-        self.color2 = unpack('3B', color_data[3:6])
 
 class Tile(object):
     def __init__(self, tile_data):
@@ -2260,11 +2218,6 @@ class Terrain(object):
             self.tiles.append(level)
             # Skip to second level of terrain data
             offset = 2 + 8 * 256
-
-def uv_to_panda2(page, pal, u, v):
-    u = (u / 256. + pal) / 17
-    v = (page + v / 256.) / 4.
-    return (u, v)
 
 class Map(object):
     def __init__(self):
@@ -2373,8 +2326,8 @@ class Map(object):
         normals = self.resources.get_tex_3gon_norm(toc_index)
         texcoords = self.resources.get_tex_3gon_uv(toc_index)
         terrain_coords = self.resources.get_tex_3gon_terrain_coords(toc_index)
-        for point, visangle, normal, texcoord, terrain_coord in zip(points, visangles, normals, texcoords, terrain_coords):
-            polygon = Triangle().from_data(point, visangle, normal, texcoord, terrain_coords=terrain_coord)
+        for pointData, visangle, normalData, texcoordData, terrain_coord in zip(points, visangles, normals, texcoords, terrain_coords):
+            polygon = Triangle().from_data(pointData, visangle, normalData, texcoordData, terrain_coords=terrain_coord)
             yield polygon
 
     # check.
@@ -2387,8 +2340,8 @@ class Map(object):
         normals = self.resources.get_tex_4gon_norm(toc_index)
         texcoords = self.resources.get_tex_4gon_uv(toc_index)
         terrain_coords = self.resources.get_tex_4gon_terrain_coords(toc_index)
-        for point, visangle, normal, texcoord, terrain_coord in zip(points, visangles, normals, texcoords, terrain_coords):
-            polygon = Quad().from_data(point, visangle, normal, texcoord, terrain_coords=terrain_coord)
+        for pointData, visangle, normalData, texcoordData, terrain_coord in zip(points, visangles, normals, texcoords, terrain_coords):
+            polygon = Quad().from_data(pointData, visangle, normalData, texcoordData, terrain_coords=terrain_coord)
             yield polygon
 
     # check.
@@ -2399,8 +2352,8 @@ class Map(object):
         else:
             visangles = ['\x00\x00'] * 64
         unknowns = self.resources.get_untex_3gon_unknown(toc_index)
-        for point, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = Triangle().from_data(point, visangle, unknown5=unknown)
+        for pointData, visangle, unknown in zip(points, visangles, unknowns):
+            polygon = Triangle().from_data(pointData, visangle, unknown5=unknown)
             yield polygon
 
     # check.
@@ -2411,8 +2364,8 @@ class Map(object):
         else:
             visangles = ['\x00\x00'] * 256
         unknowns = self.resources.get_untex_4gon_unknown(toc_index)
-        for point, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = Quad().from_data(point, visangle, unknown5=unknown)
+        for pointData, visangle, unknown in zip(points, visangles, unknowns):
+            polygon = Quad().from_data(pointData, visangle, unknown5=unknown)
             yield polygon
 
     def write(self):
@@ -2478,8 +2431,8 @@ def load(context,
          filepath,
          *,
          global_scale_x=28.0,
-         global_scale_y=28.0,
-         global_scale_z=24.0,
+         global_scale_y=24.0,
+         global_scale_z=28.0,
          relpath=None,
          global_matrix=None
          ):
@@ -2522,7 +2475,7 @@ def load(context,
         new_objects = []  # put new objects here
 
 
-        ### make the textured material
+        ### make the material for textured faces
 
         # for now lets have 1 material to parallel ganesha / my obj exporter
         # later I can do 1 material per palette or something
@@ -2543,22 +2496,21 @@ def load(context,
         ]
         matWTexWrap.base_color_texture.image = image
         matWTexWrap.base_color_texture.texcoords = 'UV'
+        # setup transparency
         # link texture alpha channel to Principled BSDF material
         # https://blender.stackexchange.com/a/239948
         matWTex.node_tree.links.new(
             find_nodes_by_type(matWTex, 'BSDF_PRINCIPLED')[0].inputs['Alpha'],
             find_nodes_by_type(matWTex, 'TEX_IMAGE')[0].outputs['Alpha'])
-        # default specular is 1, which is shiny, which is ugly
-        matWTexWrap.specular = 0.
-        matWTexWrap.specular_tint = 0.
-        matWTexWrap.roughness = 0.
-
-        # setup transparency?
         matWTexWrap.ior = 1.
         matWTexWrap.alpha = 1.
         #matWTex.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
         matWTex.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
 
+        # default specular is 1, which is shiny, which is ugly
+        matWTexWrap.specular = 0.
+        matWTexWrap.specular_tint = 0.
+        matWTexWrap.roughness = 0.
 
         # TODO just write a single greyscale image,
         # and write the 16 palettes
@@ -2578,7 +2530,7 @@ def load(context,
         """
 
 
-        ### make the untextured material
+        ### make the material for untextured faces
 
         matWOTexName = 'GNS Material Untextured'
         matWOTex = unique_materials[matWOTexName] = bpy.data.materials.new(matWOTexName)
@@ -2599,6 +2551,11 @@ def load(context,
         for material in materials:
             me.materials.append(material)
 
+
+        uv_to_panda2 = lambda page, pal, uv: (
+            (uv[0] / 256. + pal) / 17.,
+            (page + uv[1] / 256.) / 4.)
+
         vi = 0
         vti = 0
         for s in map.polygons:
@@ -2606,12 +2563,11 @@ def load(context,
             n = len(V)
             for v in V:
                 vtxHasTexCoord = hasattr(v, 'normal')
-                verts_loc.append((v.point.X, v.point.Y, v.point.Z))
+                verts_loc.append(v.point)
 
                 if vtxHasTexCoord:
-                    texcoord = uv_to_panda2(s.texture_page, s.texture_palette, *v.texcoord.coords())
-                    verts_tex.append(texcoord)
-                    verts_nor.append((v.normal.X, v.normal.Y, v.normal.Z))
+                    verts_tex.append(uv_to_panda2(s.texture_page, s.texture_palette, v.texcoord))
+                    verts_nor.append(v.normal)
                 else:
                     # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
                     #  Error: Array length mismatch (got 6615, expected more)

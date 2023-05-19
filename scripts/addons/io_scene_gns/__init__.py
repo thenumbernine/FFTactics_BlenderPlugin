@@ -54,12 +54,12 @@ class ImportGNS(bpy.types.Operator, ImportHelper):
     global_scale_y : FloatProperty(
         name = "Scale Down Y",
         min=.01, max=1000.,
-        default=28.0,
+        default=24.0,
     )
     global_scale_z : FloatProperty(
         name = "Scale Down Z",
         min=.01, max=1000.,
-        default=24.0,
+        default=28.0,
     )
 
     def execute(self, context):
