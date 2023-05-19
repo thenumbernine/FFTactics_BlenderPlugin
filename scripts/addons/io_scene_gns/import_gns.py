@@ -2626,7 +2626,6 @@ def load(context,
         print('len loops_vert_idx', len(loops_vert_idx))
 
         fgon_edges = set()
-        edges = []
         tot_loops = 3 * len(faces)
 
         mesh.polygons.add(len(faces))
@@ -2670,15 +2669,8 @@ def load(context,
                                 for uv in verts_tex[face_uvidx])
             mesh.uv_layers[0].data.foreach_set("uv", loops_uv)
 
-        use_edges=True
-        use_edges = use_edges and bool(edges)
-        if use_edges:
-            mesh.edges.add(len(edges))
-            # edges should be a list of (a, b) tuples
-            mesh.edges.foreach_set("vertices", unpack_list(edges))
-
         mesh.validate(clean_customdata=False)  # *Very* important to not remove lnors here!
-        mesh.update(calc_edges=use_edges, calc_edges_loose=use_edges)
+        mesh.update()
 
         if verts_nor:
             clnors = array.array('f', [0.0] * (len(mesh.loops) * 3))
@@ -2734,6 +2726,7 @@ def load(context,
         tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
         tmeshObj.matrix_world = global_matrix
+        tmeshObj.hide_render = True
         newObjects.append(tmeshObj)
         
         # directional lights
