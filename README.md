@@ -23,9 +23,12 @@ Click the checkbox and you should now find a new option under File -> Import:
 
 ## Progress
 
-Right now it just imports the mesh as-is.
+The mesh is importing.
 
-Maybe later I'll get fancy with multiple palettes and other stuff.
+The 3 directional lights' colors are importing.
+The directions are still meh.
+
+The terrain tiles are imported and custom per-face attributes are stored.  These can be accessed from 'Geometry Nodes' -> 'Face' -> scroll right in list of face attributes to see all the extra custom ones.
 
 TODO:
 - separate the indexed-texture from the palettes, and make palettes somehow easily swappable in blender.
@@ -34,7 +37,6 @@ TODO:
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
-- terrain attributes.
 - exporting.
 
 ## Sources:

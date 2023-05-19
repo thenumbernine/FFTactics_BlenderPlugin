@@ -2084,7 +2084,7 @@ def atou16(data):
 def vertexFromData(data):
     return unpack('<3h', data)
 
-# this is stored as bytes and transformed later based on palette, etc 
+# this is stored as bytes and transformed later based on palette, etc
 def texcoordFromData(data):
     return unpack('<2B', data)
 
@@ -2177,21 +2177,29 @@ def paletteFromData(data):
 '''
 slope types:
 0x00b = 00000000b Flat
-0x25 = 00100101b Incline S
-0x85 = 10000101b Incline N
-0x52 = 01010010b Incline E
-0x58 = 01011000b Incline W
+0x52 = 01 01 00 10 b Incline E
+0x58 = 01 01 10 00 b Incline W
+0x25 = 00 10 01 01 b Incline S
+0x85 = 10 00 01 01 b Incline N
 
-0x41 = 01000001b Convex NE
-0x11 = 00010001b Convex SE
-0x14 = 00010100b Convex SW
-0x44 = 01000100b Convex NW
+0x41 = 01 00 00 01 b Convex NE
+0x96 = 10 01 01 10 b Concave NE
 
-0x96 = 10010110b Concave NE
-0x66 = 01100110b Concave SE
-0x69 = 01101001b Concave SW
-0x99 = 10011001b Concave NW
-using GaneshaDx's slope stuff for slope stuff
+0x11 = 00 01 00 01 b Convex SE
+0x66 = 01 10 01 10 b Concave SE
+
+0x14 = 00 01 01 00 b Convex SW
+0x69 = 01 10 10 01 b Concave SW
+
+0x44 = 01 00 01 00 b Convex NW
+0x99 = 10 01 10 01 b Concave NW
+
+hmmm .... there's gotta be some meaning to the bits wrt which vertex is raised, or the triangulation ...
+4 bits needed for raised/lowered
+and then 4 more ... only 1 needed for tesselation edge orientation
+
+or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets of 2 bits, and none of the 2 bits are 11
+
 '''
 
 class Tile(object):
@@ -2210,7 +2218,17 @@ class Tile(object):
         self.cantCursor = val6 & 1
         self.cantWalk = (val6 >> 1) & 1
         self.unknown4 = (val6 >> 2) & 0x3f
-        self.unknown7 = unpack('B', tile_data[7:8])[0]
+
+        # bits vs rotation flags:
+        # 0 = ne bottom
+        # 1 = se bottom
+        # 2 = sw bottom
+        # 3 = nw bottom
+        # 4 = ne top
+        # 5 = se top
+        # 6 = sw top
+        # 7 = nw top
+        self.rotationFlags = unpack('B', tile_data[7:8])[0]
 
 class Terrain(object):
     def __init__(self, terrain_data):
@@ -2494,7 +2512,7 @@ def load(context,
         matWTex = unique_materials[matWTexName] = bpy.data.materials.new(matWTexName)
         matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
         matWTexWrap.use_nodes = True
-        
+
         # get image ...
         # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
         texName = 'GNS Texture'
@@ -2679,7 +2697,7 @@ def load(context,
 
 
         ### create the terrain
-      
+
         # vertexes of a [-.5, .5]^2 quad
         quadVtxs = [
             [-.5, -.5],
@@ -2726,21 +2744,22 @@ def load(context,
         bm = bmesh.new()
         if bpy.context.mode == 'EDIT_MESH':
             bm.from_edit_mesh(tmeshObj.data)
-        else:        
+        else:
             bm.from_mesh(tmeshObj.data)
         tagNames = [
             'surfaceType',
-            'unknown0_6',
-            'unknown1',
-            'height',
-            'slopeHeight',
             'depth',
-            'slopeType',
-            'unknown5',
             'cantCursor',
             'cantWalk',
+            'unknown0_6',
+            'unknown1',
+            'unknown5',
             'unknown4',
             'unknown7'
+            # via terrain mesh
+            #'height',
+            #'slopeType',
+            #'slopeHeight',
         ]
         tags = {}
         for name in tagNames:
@@ -2771,7 +2790,7 @@ def load(context,
             lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
             # matrix_world rotate y- to z+ ...
             lightObj.matrix_world = global_matrix
-            # alright, how come with mesh, I can assign the matrix_world then assign the scale, and it rotates scales 
+            # alright, how come with mesh, I can assign the matrix_world then assign the scale, and it rotates scales
             # but with this light, I apply matrix_world then I apply location, and the matrix_world is gone?
             # python is a languge without any block scope and with stupid indent rules.  it encourages polluting function namespaces.
             lightPos = (
@@ -2792,8 +2811,8 @@ def load(context,
             # hmm, this doesn't update like some random page said.
             #view_layer.update() # should transform the lightObj's (location, rotation_euler, scale) to its ... matrix?  matrix_locl? matrix_world? where int hee world is this documented?
             # setting matrix_world clears (location, rotation_euler, scale) ...
-            # so does transforming it via '@' 
-            # even after calling view_layer.update() 
+            # so does transforming it via '@'
+            # even after calling view_layer.update()
             # best answer yet: https://blender.stackexchange.com/a/169424
             newObjects.append(lightObj)
 
@@ -2805,17 +2824,17 @@ def load(context,
         background = world.node_tree.nodes['Background']
         background.inputs[0].default_value[:3] = map.amb_light_rgb
         background.inputs[1].default_value = 5.
-        
+
         # ... but the most common way of doing a skybox in blender is ...
         # ... overriding the world background
         # so ... what to do.
-        # just put a big sphere around the outside? 
+        # just put a big sphere around the outside?
         #  but how come when I do this, the sphere backface-culls, even when backface-culling is disabled?
         #  why does alpha not work when alpha-clipping or alpha-blending is enabled?
         #  and why did the goblin turn on the stove?
         # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
 
-        ### Create new objects 
+        ### Create new objects
         view_layer = context.view_layer
         collection = view_layer.active_layer_collection.collection
         for obj in newObjects:
