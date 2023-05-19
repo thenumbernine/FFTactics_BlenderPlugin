@@ -2184,21 +2184,21 @@ def paletteFromData(data):
 
 '''
 slope types:
-0x00	00000000 Flat
-0x25	00100101 Incline S
-0x85	10000101 Incline N
-0x52	01010010 Incline E
-0x58	01011000 Incline W
+0x00b = 00000000b Flat
+0x25 = 00100101b Incline S
+0x85 = 10000101b Incline N
+0x52 = 01010010b Incline E
+0x58 = 01011000b Incline W
 
-0x41	01000001 Convex NE
-0x11	00010001 Convex SE
-0x14	00010100 Convex SW
-0x44	01000100 Convex NW
+0x41 = 01000001b Convex NE
+0x11 = 00010001b Convex SE
+0x14 = 00010100b Convex SW
+0x44 = 01000100b Convex NW
 
-0x96	10010110 Concave NE
-0x66	01100110 Concave SE
-0x69	01101001 Concave SW
-0x99	10011001 Concave NW
+0x96 = 10010110b Concave NE
+0x66 = 01100110b Concave SE
+0x69 = 01101001b Concave SW
+0x99 = 10011001b Concave NW
 using GaneshaDx's slope stuff for slope stuff
 '''
 
@@ -2225,7 +2225,7 @@ class Terrain(object):
         self.tiles = []
         (x_count, z_count) = unpack('2B', terrain_data[0:2])
         self.size = (x_count, z_count)
-        print("terrain size", x_count, z_count)
+        #print("terrain size", x_count, z_count)
         offset = 2
         for y in range(2):
             level = []
@@ -2234,7 +2234,7 @@ class Terrain(object):
                 for x in range(x_count):
                     tile_data = terrain_data[offset:offset+8]
                     tile = Tile(tile_data)
-                    print('tile', y, x, z, tile.height)
+                    #print('tile', y, x, z, tile.height)
                     row.append(tile)
                     offset += 8
                 level.append(row)
@@ -2689,6 +2689,8 @@ def load(context,
             mesh.use_auto_smooth = False
 
         meshObj = bpy.data.objects.new(mesh.name, mesh)
+        meshObj.matrix_world = global_matrix
+        meshObj.scale = 1./28., 1./24., 1./28.
         newObjects.append(meshObj)
 
         for group_name, group_indices in vertex_groups.items():
@@ -2705,6 +2707,7 @@ def load(context,
             [.5, .5],
             [.5, -.5]
         ]
+        # from GaneshaDx ... seems like there should be some kind of bitfield per modified vertex ...
         liftPerVertPerSlopeType = [
             [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
             [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
@@ -2730,9 +2733,9 @@ def load(context,
                         ))
         tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
+        tmeshObj.matrix_world = global_matrix
         newObjects.append(tmeshObj)
         
-
         # directional lights
         # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
         for i in range(3):
@@ -2742,20 +2745,32 @@ def load(context,
             lightData.color = map.dir_light_rgb[i]
             lightData.angle = math.pi
             lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
-            # hmm, why doesn't setting location change anything?
-            # I know, I know, sunlight has no location.  but its blender object does. they're all pooled at the origin upon level import.  I want them spaced out so they are easier to distinguish/click on.
-            lightObj.location = (
+            # matrix_world rotate y- to z+ ...
+            lightObj.matrix_world = global_matrix
+            # alright, how come with mesh, I can assign the matrix_world then assign the scale, and it rotates scales 
+            # but with this light, I apply matrix_world then I apply location, and the matrix_world is gone?
+            # python is a languge without any block scope and with stupid indent rules.  it encourages polluting function namespaces.
+            lightPos = (
                 map.bbox[0][0] / global_scale_x + i,
-                map.bbox[0][1] / global_scale_y,
-                map.bbox[0][2] / global_scale_z
+                map.bbox[0][2] / global_scale_y,
+                -map.bbox[0][1] / global_scale_z
             )
+            lightObj.location = lightPos[0], lightPos[1], lightPos[2]
             # calculate lightObj Euler angles by dir_light_norm
             # TODO figure out which rotates which...
             dir = map.dir_light_norm[i]
-            lightObj.rotation_euler = (
-                math.atan2(-dir[1], math.sqrt(dir[0]*dir[0] + dir[2]*dir[2])), # pitch
+            eulerAngles = (
+                math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), -dir[1]), # pitch
                 math.atan2(dir[2], dir[0]),  # yaw
-                0)
+                0
+               )
+            lightObj.rotation_euler = eulerAngles[0], eulerAngles[1], eulerAngles[2]
+            # hmm, this doesn't update like some random page said.
+            #view_layer.update() # should transform the lightObj's (location, rotation_euler, scale) to its ... matrix?  matrix_locl? matrix_world? where int hee world is this documented?
+            # setting matrix_world clears (location, rotation_euler, scale) ...
+            # so does transforming it via '@' 
+            # even after calling view_layer.update() 
+            # best answer yet: https://blender.stackexchange.com/a/169424
             newObjects.append(lightObj)
 
         # ambient light?  in blender?
@@ -2776,11 +2791,9 @@ def load(context,
         #  and why did the goblin turn on the stove?
         # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
 
-        ### Create new objects
-        
+        ### Create new objects 
         view_layer = context.view_layer
         collection = view_layer.active_layer_collection.collection
-        
         for obj in newObjects:
             collection.objects.link(obj)
             obj.select_set(True)
@@ -2791,14 +2804,10 @@ def load(context,
             # maybe https://blender.stackexchange.com/questions/27667/incorrect-matrix-world-after-transformation ?
             # ... says you gotta call view_layer.update() after setting location / rotation_euler / scale ...
             # ... sooo ... what order to set all the tranforms ...
-            obj.matrix_world = global_matrix
+            #obj.matrix_world = global_matrix
 
         view_layer.update()
 
-        # TODO .... 
-        # I want the meshObj to be scaled (1/28, 1/24, 1/28) compared to the tmesh obj and lights
-        # and then I want both / all to be scaled according to the user
-        meshObj.scale = 1./global_scale_x, 1./global_scale_y, 1./global_scale_z
 
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
