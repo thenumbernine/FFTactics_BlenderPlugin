@@ -19,6 +19,16 @@ from os.path import getsize
 from struct import pack, unpack
 from datetime import datetime
 
+from ctypes import *
+
+class RGBA5551(Structure):
+    _fields_ = [
+        ("r", c_ushort, 5),
+        ("g", c_ushort, 5),
+        ("b", c_ushort, 5),
+        ("a", c_ushort, 1)
+    ]
+
 ################################ fft/map/texture.py ################################
 
 class Texture_File(object):
@@ -2165,14 +2175,13 @@ class Quad(object):
 
 def paletteFromData(data):
     palette = [None] * 16
-    mask = (1 << 5) - 1
     for i in range(16):
-        rgba = unpack('H', data[i*2:i*2+2])[0]
-        r = ((rgba >> 0) & mask) / float(mask)
-        g = ((rgba >> 5) & mask) / float(mask)
-        b = ((rgba >> 10) & mask) / float(mask)
-        a = float((rgba >> 15) & 1)
-        if not (r == 0 and g == 0 and b == 0):
+        rgba = RGBA5551.from_buffer_copy(data[i*2:i*2+2])
+        r = rgba.r / 31.
+        g = rgba.g / 31.
+        b = rgba.b / 31.
+        a = rgba.a * 1.
+        if not (r == 0. and g == 0. and b == 0.):
             a = 1.
         palette[i]  = (r,g,b,a)
     return palette
@@ -2273,7 +2282,21 @@ class Map(object):
         self.gns.read(gns_path)
         self.set_situation(0)
         self.read()
-        self.expandTexture()
+
+        # expand the 8-bits into separate 4-bits into an image double array
+        # this isn't grey, it's indexed into one of the 16 palettes.
+        self.textureIndexedData = []       # [y][x] in [0,15] integers
+        for y in range(1024):
+            dstrow = []
+            for x in range(128):
+                i = x + y * 128
+                pair = unpack('B', self.texture.data[i:i+1])[0]
+                pix1 = (pair >> 0) & 0xf
+                pix2 = (pair >> 4) & 0xf
+                dstrow.append(pix1)
+                dstrow.append(pix2)
+            self.textureIndexedData.append(dstrow)
+
         return self
 
     # check.  called from read()
@@ -2310,22 +2333,6 @@ class Map(object):
         for i in range(3):
             self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
         self.center = tuple(self.center)
-
-    # check.  called after read()
-    def expandTexture(self):
-        # expand the 8-bits into separate 4-bits into an image double array
-        # this isn't grey, it's indexed into one of the 16 palettes.
-        self.textureIndexedData = []       # [y][x] in [0,15] integers
-        for y in range(1024):
-            dstrow = []
-            for x in range(128):
-                i = x + y * 128
-                pair = unpack('B', self.texture.data[i:i+1])[0]
-                pix1 = (pair >> 0) & 0xf
-                pix2 = (pair >> 4) & 0xf
-                dstrow.append(pix1)
-                dstrow.append(pix2)
-            self.textureIndexedData.append(dstrow)
 
     # check.
     def get_tex_3gon(self, toc_index=0x40):
@@ -2501,36 +2508,42 @@ def load(context,
             matWTexWrap.specular = 0.
             matWTexWrap.specular_tint = 0.
             matWTexWrap.roughness = 0.
-      
-        """
-        matTexIndexedImg = bpy.data.images.new('GNS Texture Indexed', width=map.textureWidth, height=map.textureHeight)
+
+        # here's the indexed texture, though it's not attached to anything
+        matTexIndexedImg = bpy.data.images.new('GNS Tex Indexed', width=256, height=1024)
         matTexIndexedImg.pixels = [
-            color
+            ch
             for row in map.textureIndexedData
-            for color in row
+            for colorIndex in row
+            for ch in (
+                colorIndex/15.,
+                colorIndex/15.,
+                colorIndex/15.,
+                1.
+            )
         ]
-        matTexIndexedName = 'GNS Material Textured'
+        matTexIndexedName = 'GNS Mat Tex Indexed'
         makeTexMat(matTexIndexedName, matTexIndexedImg)
-        """
+
 
         # write out each individual 16 palettes
         imagePerPal = [None] * len(map.color_palettes)
         matTexNamePerPal = [None] * len(map.color_palettes)
         for (i, palette) in enumerate(map.color_palettes):
-            imagePerPal[i] = bpy.data.images.new('GNS Texture Palette '+str(i), width=256, height=1024)
+            imagePerPal[i] = bpy.data.images.new('GNS Tex Pal '+str(i), width=256, height=1024)
             imagePerPal[i].pixels = [
                 ch
                 for row in map.textureIndexedData
                 for colorIndex in row
                 for ch in palette[colorIndex]
             ]
-            matTexNamePerPal[i] = 'GNS Material Tex Pal '+str(i)
+            matTexNamePerPal[i] = 'GNS Mat Tex Pal '+str(i)
             makeTexMat(matTexNamePerPal[i], imagePerPal[i])
 
         # TODO just write a single greyscale image,
         # and write the 16 palettes
         # and set up Graph Editor for dynamically picking the palette
-        
+
 
         ### make the material for untextured faces
 
