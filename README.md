@@ -28,6 +28,8 @@ The mesh is importing.
 The 3 directional lights' colors are importing.
 The directions are still meh.
 
+The map ambient light is assigned to the world background color.
+
 The terrain tiles are imported and custom per-face attributes are stored.  These can be accessed from 'Geometry Nodes' -> 'Face' -> scroll right in list of face attributes to see all the extra custom ones.
 
 TODO:
@@ -37,6 +39,7 @@ TODO:
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
+- should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
 - exporting.
 
 ## Sources:

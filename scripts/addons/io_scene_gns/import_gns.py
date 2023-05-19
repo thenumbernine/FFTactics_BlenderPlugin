@@ -1,3 +1,5 @@
+# https://ffhacktics.com/wiki/Maps/Mesh
+
 import array
 import os
 import time
@@ -122,9 +124,9 @@ class Resources(object):
     def get_tex_3gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
         offset = 8
-        for i in range(tri_count):
+        for i in range(triCount):
             yield data[offset:offset+18]
             offset += 18
 
@@ -132,9 +134,9 @@ class Resources(object):
     def get_tex_4gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18
-        for i in range(quad_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18
+        for i in range(quadCount):
             yield data[offset:offset+24]
             offset += 24
 
@@ -142,9 +144,9 @@ class Resources(object):
     def get_untex_3gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24
-        for i in range(untri_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24
+        for i in range(untriCount):
             yield data[offset:offset+18]
             offset += 18
 
@@ -152,9 +154,9 @@ class Resources(object):
     def get_untex_4gon_xyz(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18
-        for i in range(unquad_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18
+        for i in range(unquadCount):
             yield data[offset:offset+24]
             offset += 24
 
@@ -162,9 +164,9 @@ class Resources(object):
     def get_tex_3gon_norm(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24
-        for i in range(tri_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24
+        for i in range(triCount):
             normal_data = data[offset:offset+18]
             yield normal_data
             offset += 18
@@ -173,9 +175,9 @@ class Resources(object):
     def get_tex_4gon_norm(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18
-        for i in range(quad_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18
+        for i in range(quadCount):
             normal_data = data[offset:offset+24]
             yield normal_data
             offset += 24
@@ -184,9 +186,9 @@ class Resources(object):
     def get_tex_3gon_uv(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24
-        for i in range(tri_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24
+        for i in range(triCount):
             texcoordData = data[offset:offset+10]
             yield texcoordData
             offset += 10
@@ -195,9 +197,9 @@ class Resources(object):
     def get_tex_4gon_uv(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24 + tri_count * 10
-        for i in range(quad_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10
+        for i in range(quadCount):
             texcoordData = data[offset:offset+12]
             yield texcoordData
             offset += 12
@@ -206,9 +208,9 @@ class Resources(object):
     def get_untex_3gon_unknown(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24 + tri_count * 10 + quad_count * 12
-        for i in range(untri_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12
+        for i in range(untriCount):
             unk_data = data[offset:offset+4]
             yield unk_data
             offset += 4
@@ -217,9 +219,9 @@ class Resources(object):
     def get_untex_4gon_unknown(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24 + tri_count * 10 + quad_count * 12 + untri_count * 4
-        for i in range(unquad_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4
+        for i in range(unquadCount):
             unk_data = data[offset:offset+4]
             yield unk_data
             offset += 4
@@ -228,9 +230,9 @@ class Resources(object):
     def get_tex_3gon_terrain_coords(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24 + tri_count * 10 + quad_count * 12 + untri_count * 4 + unquad_count * 4
-        for i in range(tri_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4 + unquadCount * 4
+        for i in range(triCount):
             terrain_coord_data = data[offset:offset+2]
             yield terrain_coord_data
             offset += 2
@@ -239,9 +241,9 @@ class Resources(object):
     def get_tex_4gon_terrain_coords(self, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
-        (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
-        offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18 + unquad_count * 24 + tri_count * 18 + quad_count * 24 + tri_count * 10 + quad_count * 12 + untri_count * 4 + unquad_count * 4 + tri_count * 2
-        for i in range(quad_count):
+        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4 + unquadCount * 4 + triCount * 2
+        for i in range(quadCount):
             terrain_coord_data = data[offset:offset+2]
             yield terrain_coord_data
             offset += 2
@@ -2217,7 +2219,7 @@ class Tile(object):
         val6 = unpack('B', tile_data[6:7])[0]
         self.cantCursor = val6 & 1
         self.cantWalk = (val6 >> 1) & 1
-        self.unknown4 = (val6 >> 2) & 0x3f
+        self.unknown6_2 = (val6 >> 2) & 0x3f
 
         # bits vs rotation flags:
         # 0 = ne bottom
@@ -2283,9 +2285,7 @@ class Map(object):
         self.gray_palettes = [paletteFromData(palette_data) for palette_data in self.resources.get_gray_palettes()]
 
         self.dir_light_rgb = [l for l in self.resources.get_dir_light_rgb()]
-        print('dir_light_rgb: '+str(self.dir_light_rgb))
         self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
-        print('dir_light_norm: '+str(self.dir_light_norm))
         self.amb_light_rgb = self.resources.get_amb_light_rgb()
         self.background = self.resources.get_background()
         self.terrain = Terrain(self.resources.get_terrain())
@@ -2439,7 +2439,7 @@ class Map(object):
                         + pack('B', tile.slopeType)
                         + pack('B', tile.unknown5)
                         + pack('B', (tile.unknown4 << 2) | (tile.cantWalk << 1) | tile.cantCursor)
-                        + pack('B', tile.unknown7)
+                        + pack('B', tile.unknown6_2)
                     )
             # Skip to second level of terrain data
             terrain_data += '\x00' * (8 * 256 - 8 * max_x * max_z)
@@ -2508,55 +2508,56 @@ def load(context,
 
         # for now lets have 1 material to parallel ganesha / my obj exporter
         # later I can do 1 material per palette or something
-        matWTexName = 'GNS Material Textured'
-        matWTex = unique_materials[matWTexName] = bpy.data.materials.new(matWTexName)
-        matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
-        matWTexWrap.use_nodes = True
-
-        # get image ...
-        # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-        texName = 'GNS Texture'
-        image = bpy.data.images.new(texName, width=map.textureWidth, height=map.textureHeight)
-        image.pixels = [
-            ch
-            for row in map.textureRGBAData
-            for color in row
-            for ch in color
-        ]
-        matWTexWrap.base_color_texture.image = image
-        matWTexWrap.base_color_texture.texcoords = 'UV'
-        # setup transparency
-        # link texture alpha channel to Principled BSDF material
-        # https://blender.stackexchange.com/a/239948
-        matWTex.node_tree.links.new(
-            find_nodes_by_type(matWTex, 'BSDF_PRINCIPLED')[0].inputs['Alpha'],
-            find_nodes_by_type(matWTex, 'TEX_IMAGE')[0].outputs['Alpha'])
-        matWTexWrap.ior = 1.
-        matWTexWrap.alpha = 1.
-        #matWTex.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
-        matWTex.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
-
-        # default specular is 1, which is shiny, which is ugly
-        matWTexWrap.specular = 0.
-        matWTexWrap.specular_tint = 0.
-        matWTexWrap.roughness = 0.
 
         # TODO just write a single greyscale image,
         # and write the 16 palettes
         # and set up Graph Editor for dynamically picking the palette
-        """
         # write out each individual 16 palettes
-        palimages = [None] * len(map.color_palettes)
+        imagePerPal = [None] * len(map.color_palettes)
         for (i, palette) in enumerate(map.color_palettes):
-            palimages[i] = bpy.data.images.new('TexPalBaked'+str(i), width=256, height=1024)
+            imagePerPal[i] = bpy.data.images.new('GNS Texture Palette '+str(i), width=256, height=1024)
             pix = [0] * (4 * 1024 * 256)
             for y in range(1024):
+                row = map.textureGreyData[y]
                 for x in range(256):
-                    color = palette[map.textureGreyData[y][x]]
+                    color = palette[row[x]]
                     for ch in range(4):
                         pix[ch + 4 * (x + 256 * y)] = color[ch]
-            palimages[i].pixels = pix
-        """
+            imagePerPal[i].pixels = pix
+
+        def makeTexMat():
+            # get image ...
+            # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
+            image = bpy.data.images.new('GNS Texture Master', width=map.textureWidth, height=map.textureHeight)
+            image.pixels = [
+                ch
+                for row in map.textureRGBAData
+                for color in row
+                for ch in color
+            ]
+            matWTexName = 'GNS Material Textured'
+            matWTex = unique_materials[matWTexName] = bpy.data.materials.new(matWTexName)
+            matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
+            matWTexWrap.use_nodes = True
+            matWTexWrap.base_color_texture.image = image
+            matWTexWrap.base_color_texture.texcoords = 'UV'
+            # setup transparency
+            # link texture alpha channel to Principled BSDF material
+            # https://blender.stackexchange.com/a/239948
+            matWTex.node_tree.links.new(
+                find_nodes_by_type(matWTex, 'BSDF_PRINCIPLED')[0].inputs['Alpha'],
+                find_nodes_by_type(matWTex, 'TEX_IMAGE')[0].outputs['Alpha'])
+            matWTexWrap.ior = 1.
+            matWTexWrap.alpha = 1.
+            #matWTex.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
+            matWTex.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
+
+            # default specular is 1, which is shiny, which is ugly
+            matWTexWrap.specular = 0.
+            matWTexWrap.specular_tint = 0.
+            matWTexWrap.roughness = 0.
+            return matWTexName
+        matWTexName = makeTexMat()
 
 
         ### make the material for untextured faces
@@ -2751,11 +2752,11 @@ def load(context,
             'depth',
             'cantCursor',
             'cantWalk',
+            'rotationFlags',
             'unknown0_6',
             'unknown1',
             'unknown5',
-            'unknown4',
-            'unknown7'
+            'unknown6_2'
             # via terrain mesh
             #'height',
             #'slopeType',
