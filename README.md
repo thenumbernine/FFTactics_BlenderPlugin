@@ -32,6 +32,7 @@ TODO:
 - I'm handling ambient via assigning it to the world background color.  is this a good thing?
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
+- ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
 - terrain attributes.
 - exporting.
