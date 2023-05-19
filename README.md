@@ -33,7 +33,7 @@ TODO:
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
-- terrain slopes and attributes.
+- terrain attributes.
 - exporting.
 
 ## Sources:
