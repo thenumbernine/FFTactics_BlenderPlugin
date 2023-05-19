@@ -125,8 +125,7 @@ class Resources(object):
         (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
         offset = 8
         for i in range(tri_count):
-            polygon_data = data[offset:offset+18]
-            yield polygon_data
+            yield data[offset:offset+18]
             offset += 18
 
     # check.
@@ -136,8 +135,7 @@ class Resources(object):
         (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
         offset = 8 + tri_count * 18
         for i in range(quad_count):
-            polygon_data = data[offset:offset+24]
-            yield polygon_data
+            yield data[offset:offset+24]
             offset += 24
 
     # check.
@@ -147,8 +145,7 @@ class Resources(object):
         (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
         offset = 8 + tri_count * 18 + quad_count * 24
         for i in range(untri_count):
-            polygon_data = data[offset:offset+18]
-            yield polygon_data
+            yield data[offset:offset+18]
             offset += 18
 
     # check.
@@ -158,8 +155,7 @@ class Resources(object):
         (tri_count, quad_count, untri_count, unquad_count) = unpack('<4H', data[0:8])
         offset = 8 + tri_count * 18 + quad_count * 24 + untri_count * 18
         for i in range(unquad_count):
-            polygon_data = data[offset:offset+24]
-            yield polygon_data
+            yield data[offset:offset+24]
             offset += 24
 
     # check.
@@ -404,32 +400,28 @@ class Resources(object):
             for abc in ['A', 'B', 'C', 'D']:
                 polygons_data += pack('<3h', *[int(x * 4096.) for x in getattr(polygon, abc).normal])
         for polygon in tex_tri:
-            polygon_data = ''
             if polygon.unknown2 == 0:
                 polygon.unknown2 = 120
                 polygon.unknown3 = 3
-            polygon_data += pack('BB', *polygon.A.texcoord)
-            val3 = (polygon.unknown1 << 4) + polygon.texture_palette
-            polygon_data += pack('BB', *[val3, polygon.unknown2])
-            polygon_data += pack('BB', *polygon.B.texcoord)
-            val7 = (polygon.unknown3 << 2) + polygon.texture_page
-            polygon_data += pack('BB', *[val7, polygon.unknown4])
-            polygon_data += pack('BB', *polygon.C.texcoord)
-            polygons_data += polygon_data
+            polygons_data += (''
+                + pack('BB', *polygon.A.texcoord)
+                + pack('BB', *[(polygon.unknown1 << 4) | polygon.texture_palette, polygon.unknown2])
+                + pack('BB', *polygon.B.texcoord)
+                + pack('BB', *[(polygon.unknown3 << 2) | polygon.texture_page, polygon.unknown4])
+                + pack('BB', *polygon.C.texcoord)
+            )
         for polygon in tex_quad:
-            polygon_data = ''
             if polygon.unknown2 == 0:
                 polygon.unknown2 = 120
                 polygon.unknown3 = 3
-            polygon_data += pack('BB', *polygon.A.texcoord)
-            val3 = (polygon.unknown1 << 4) + polygon.texture_palette
-            polygon_data += pack('BB', *[val3, polygon.unknown2])
-            polygon_data += pack('BB', *polygon.B.texcoord)
-            val7 = (polygon.unknown3 << 2) + polygon.texture_page
-            polygon_data += pack('BB', *[val7, polygon.unknown4])
-            polygon_data += pack('BB', *polygon.C.texcoord)
-            polygon_data += pack('BB', *polygon.D.texcoord)
-            polygons_data += polygon_data
+            polygons_data += (''
+                + pack('BB', *polygon.A.texcoord)
+                + pack('BB', *[(polygon.unknown1 << 4) + polygon.texture_palette, polygon.unknown2])
+                + pack('BB', *polygon.B.texcoord)
+                + pack('BB', *[(polygon.unknown3 << 2) + polygon.texture_page, polygon.unknown4])
+                + pack('BB', *polygon.C.texcoord)
+                + pack('BB', *polygon.D.texcoord)
+            )
         for polygon in untex_tri:
             polygons_data += polygon.unknown5
         for polygon in untex_quad:
@@ -2204,20 +2196,20 @@ using GaneshaDx's slope stuff for slope stuff
 
 class Tile(object):
     def __init__(self, tile_data):
-        val1 = unpack('B', tile_data[0:1])[0]
-        self.unknown1 = (val1 >> 6) & 0x3
-        self.surfaceType = (val1 >> 0) & 0x3f
+        val0 = unpack('B', tile_data[0:1])[0]
+        self.surfaceType = val0 & 0x3f
+        self.unknown1 = (val0 >> 6) & 0x3
         self.unknown2 = unpack('B', tile_data[1:2])[0]
         self.height = unpack('B', tile_data[2:3])[0]        # in half-tiles
-        val4 = unpack('B', tile_data[3:4])[0]
-        self.depth = (val4 >> 5) & 0x7
-        self.slopeHeight = (val4 >> 0) & 0x1f
+        val3 = unpack('B', tile_data[3:4])[0]
+        self.slopeHeight = val3 & 0x1f
+        self.depth = (val3 >> 5) & 0x7
         self.slopeType = unpack('B', tile_data[4:5])[0]
         self.unknown3 = unpack('B', tile_data[5:6])[0]
-        val7 = unpack('B', tile_data[6:7])[0]
-        self.unknown4 = (val7 >> 2) & 0x3f
-        self.cant_walk = (val7 >> 1) & 0x1
-        self.cant_cursor = (val7 >> 0) & 0x1
+        val6 = unpack('B', tile_data[6:7])[0]
+        self.cantCursor = val6 & 1
+        self.cantWalk = (val6 >> 1) & 1
+        self.unknown4 = (val6 >> 2) & 0x3f
         self.unknown5 = unpack('B', tile_data[7:8])[0]
 
 class Terrain(object):
@@ -2421,20 +2413,16 @@ class Map(object):
         for level in terrain.tiles:
             for row in level:
                 for tile in row:
-                    tile_data = ''
-                    val1 = (tile.unknown1 << 6) | (tile.surfaceType << 0)
-                    tile_data += pack('B', val1)
-                    tile_data += pack('B', tile.unknown2)
-                    tile_data += pack('B', tile.height)
-                    val4 = (tile.depth << 5) | (tile.slopeHeight << 0)
-                    tile_data += pack('B', val4)
-                    tile_data += pack('B', tile.slopeType)
-                    tile_data += pack('B', tile.unknown3)
-                    val7 = (tile.unknown4 << 2) | (tile.cant_walk << 1) | (tile.cant_cursor << 0)
-                    tile_data += pack('B', val7)
-                    tile_data += pack('B', tile.unknown5)
-
-                    terrain_data += tile_data
+                    terrain_data += (''
+                        + pack('B', (tile.unknown1 << 6) | tile.surfaceType)
+                        + pack('B', tile.unknown2)
+                        + pack('B', tile.height)
+                        + pack('B', (tile.depth << 5) | tile.slopeHeight)
+                        + pack('B', tile.slopeType)
+                        + pack('B', tile.unknown3)
+                        + pack('B', (tile.unknown4 << 2) | (tile.cantWalk << 1) | tile.cantCursor)
+                        + pack('B', tile.unknown5)
+                    )
             # Skip to second level of terrain data
             terrain_data += '\x00' * (8 * 256 - 8 * max_x * max_z)
         self.resources.put_terrain(terrain_data)
@@ -2711,6 +2699,7 @@ def load(context,
         tmeshVtxs = []
         tmeshEdges = []
         tmeshFaces = []
+        tilesFlattened = []
         for y in range(2):
             for z in range(map.terrain.size[1]):
                 for x in range(map.terrain.size[0]):
@@ -2723,12 +2712,42 @@ def load(context,
                             -.5 * (tile.height + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
                             z + .5 + q[1]
                         ))
+                    tilesFlattened.append(tile)
+        if len(tmeshFaces) != len(tilesFlattened):
+            print("not equal", len(tmeshFaces), len(tilesFlattened))
+            raise "PYTHON SUCKS"
         tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
         tmeshObj.matrix_world = global_matrix
         tmeshObj.hide_render = True
         newObjects.append(tmeshObj)
-        
+
+        # custom per-face attributes for the terrain:
+        # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
+        import bmesh
+        bm = bmesh.new()
+        if bpy.context.mode == 'EDIT_MESH':
+            bm.from_edit_mesh(tmeshObj.data)
+        else:        
+            bm.from_mesh(tmeshObj.data)
+        tagSurfaceType = bm.faces.layers.int.new('surfaceType')
+        tagSurfaceType = bm.faces.layers.int.get('surfaceType')
+        # example says to write to bm.edges[faceNo] to change a face property ... ?
+        # but they read from bm.faces[faceNo] ... wtf?
+        # ... BMElemSeq[index]: outdated internal index table, run ensure_lookup_table() first
+        bm.faces.ensure_lookup_table()
+        if len(bm.faces) != len(tilesFlattened):
+            print("not equal", len(bm.faces), len(tilesFlattened))
+            raise "PYTHON SUCKS"
+        for (i, tile) in enumerate(tilesFlattened):
+            bm.faces[i][tagSurfaceType] = tile.surfaceType
+        if bpy.context.mode == 'EDIT_MESH':
+            bm.updated_edit_mesh(tmeshObj.data)
+        else:
+            bm.to_mesh(tmeshObj.data)
+        bm.free()
+
+
         # directional lights
         # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
         for i in range(3):
