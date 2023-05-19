@@ -2255,18 +2255,27 @@ class Map(object):
         print('dir_light_norm: '+str(self.dir_light_norm))
         self.amb_light_rgb = self.resources.get_amb_light_rgb()
         self.background = self.resources.get_background()
-        #for l in self.resources.get_background():
-        #    print('background: '+str(l))        # 6 byte-values
-        #for l in self.resources.get_terrain():
-        #    print('terrain: '+str(l))           # 4100 byte entries
+        #self.terrain = Terrain(self.resources.get_terrain())
 
     # check.
     def readPolygons(self):
+        bboxMin = [math.inf] * 3
+        bboxMax = [-math.inf] * 3
         self.polygons = (
                   list(self.get_tex_3gon())
                 + list(self.get_tex_4gon())
                 + list(self.get_untex_3gon())
                 + list(self.get_untex_4gon()))
+        for polygon in self.polygons:
+            for vertex in polygon.vertices():
+                for i in range(3):
+                    bboxMin[i] = min(bboxMin[i], vertex.point[i])
+                    bboxMax[i] = min(bboxMax[i], vertex.point[i])
+        self.bbox = (tuple(bboxMin), tuple(bboxMax))
+        self.center = [None] * 3
+        for i in range(3):
+            self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
+        self.center = tuple(self.center)
 
     # check.  called after read()
     def expandTexture(self):
@@ -2693,15 +2702,29 @@ def load(context,
         # directional lights
         # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
         for i in range(3):
-            lightname = 'GNS Light '+str(i)
-            light_data = bpy.data.lights.new(name=lightname, type='SUN')
-            # energy? ...
-            light_data.energy = 20
-            light_data.color = map.dir_light_rgb[i]
-            light_data.angle = math.pi
-            light_object = bpy.data.objects.new(name=lightname, object_data=light_data)
-            new_objects.append(light_object)
-        
+            lightName = 'GNS Light '+str(i)
+            lightData = bpy.data.lights.new(name=lightName, type='SUN')
+            lightData.energy = 20       # ?
+            lightData.color = map.dir_light_rgb[i]
+            lightData.angle = math.pi
+            lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
+            # hmm, why doesn't setting location change anything?
+            # I know, I know, sunlight has no location.  but its blender object does. they're all pooled at the origin upon level import.  I want them spaced out so they are easier to distinguish/click on.
+            lightObj.location = (
+                (map.bbox[0][0] + i) / global_scale_x,
+                map.bbox[0][1] / global_scale_y,
+                map.bbox[0][2] / global_scale_z
+            )
+            # TODO calculate lightObj Euler angles by dir_light_norm
+            dir = map.dir_light_norm[i]
+            # TODO why doesn't this set anything
+            lightObj.rotation_euler = (
+                math.atan2(dir[1], math.sqrt(dir[0]*dir[0] + dir[2]*dir[2])),
+                0,
+                math.atan2(dir[2], dir[0]))
+            new_objects.append(lightObj)
+
+
         # ambient light?  in blender?
         # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
         # seems the most common way is ...
@@ -2725,14 +2748,13 @@ def load(context,
             collection.objects.link(obj)
             obj.select_set(True)
 
-            # we could apply this anywhere before scaling.
+            # apply up/fwd transform
+            # setting this override any previous location / rotation_euler set
+            # how can we just apply this transform to the previous transform?
             obj.matrix_world = global_matrix
 
         view_layer.update()
 
-        axis_min = [1000000000] * 3
-        axis_max = [-1000000000] * 3
-        
         # TODO before matrix_world?  as matrix_world?
         for obj in new_objects:
             obj.scale = 1./global_scale_x, 1./global_scale_y, 1./global_scale_z
