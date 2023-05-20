@@ -183,6 +183,61 @@ class RGB888(MyStruct):
     def toTuple(self):
         return (self.r / 255., self.g / 255., self.b / 255.)
 
+'''
+slope types:
+0x00b = 00000000b Flat
+0x52 = 01 01 00 10 b Incline E
+0x58 = 01 01 10 00 b Incline W
+0x25 = 00 10 01 01 b Incline S
+0x85 = 10 00 01 01 b Incline N
+
+0x41 = 01 00 00 01 b Convex NE
+0x96 = 10 01 01 10 b Concave NE
+
+0x11 = 00 01 00 01 b Convex SE
+0x66 = 01 10 01 10 b Concave SE
+
+0x14 = 00 01 01 00 b Convex SW
+0x69 = 01 10 10 01 b Concave SW
+
+0x44 = 01 00 01 00 b Convex NW
+0x99 = 10 01 10 01 b Concave NW
+
+hmmm .... there's gotta be some meaning to the bits wrt which vertex is raised, or the triangulation ...
+4 bits needed for raised/lowered
+and then 4 more ... only 1 needed for tesselation edge orientation
+
+or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets of 2 bits, and none of the 2 bits are 11
+
+'''
+class TerrainTile(MyStruct):
+    _pack_ = 1
+    _fields_ = [
+        ('surfaceType', c_uint8, 6),
+        ('unk0_6', c_uint8, 2),
+        ('unk1', c_uint8),
+        ('halfHeight', c_uint8),    # in half-tiles
+        ('slopeHeight', c_uint8, 5),
+        ('depth', c_uint8, 3),      # in half-tiles too?
+        ('slopeType', c_uint8),
+        ('unk5', c_uint8),
+        ('cantCursor', c_uint8, 1),
+        ('cantWalk', c_uint8, 1),
+        ('unk6_2', c_uint8, 6),
+        
+        # bits vs rotation flags:
+        # 0 = ne bottom
+        # 1 = se bottom
+        # 2 = sw bottom
+        # 3 = nw bottom
+        # 4 = ne top
+        # 5 = se top
+        # 6 = sw top
+        # 7 = nw top
+        ('rotFlags', c_uint8),
+    ]
+assert(sizeof(TerrainTile) == 8)
+
 def readStruct(file, struct):
     return struct.from_buffer_copy(file.read(sizeof(struct)))
 
@@ -291,7 +346,6 @@ class Resources(object):
                     print('setting chunk', i, 'to', file_path)
                     self.chunks[i] = resource
 
-    # TODO
     def get_terrain(self):
         resource = self.chunks[0x1a]
         data = resource.chunks[0x1a]
@@ -1979,83 +2033,21 @@ class QuadUntex(object):
         return self
 
 
-'''
-slope types:
-0x00b = 00000000b Flat
-0x52 = 01 01 00 10 b Incline E
-0x58 = 01 01 10 00 b Incline W
-0x25 = 00 10 01 01 b Incline S
-0x85 = 10 00 01 01 b Incline N
-
-0x41 = 01 00 00 01 b Convex NE
-0x96 = 10 01 01 10 b Concave NE
-
-0x11 = 00 01 00 01 b Convex SE
-0x66 = 01 10 01 10 b Concave SE
-
-0x14 = 00 01 01 00 b Convex SW
-0x69 = 01 10 10 01 b Concave SW
-
-0x44 = 01 00 01 00 b Convex NW
-0x99 = 10 01 10 01 b Concave NW
-
-hmmm .... there's gotta be some meaning to the bits wrt which vertex is raised, or the triangulation ...
-4 bits needed for raised/lowered
-and then 4 more ... only 1 needed for tesselation edge orientation
-
-or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets of 2 bits, and none of the 2 bits are 11
-
-'''
-
-class Tile(object):
-    def __init__(self, tileData):
-        val0 = unpack('B', tileData[0:1])[0]
-        self.surfaceType = val0 & 0x3f
-        self.unknown0_6 = (val0 >> 6) & 0x3
-        self.unknown1 = unpack('B', tileData[1:2])[0]
-        self.height = unpack('B', tileData[2:3])[0]        # in half-tiles
-        val3 = unpack('B', tileData[3:4])[0]
-        self.slopeHeight = val3 & 0x1f
-        self.depth = (val3 >> 5) & 0x7
-        self.slopeType = unpack('B', tileData[4:5])[0]
-        self.unknown5 = unpack('B', tileData[5:6])[0]
-        val6 = unpack('B', tileData[6:7])[0]
-        self.cantCursor = val6 & 1
-        self.cantWalk = (val6 >> 1) & 1
-        self.unknown6_2 = (val6 >> 2) & 0x3f
-
-        # bits vs rotation flags:
-        # 0 = ne bottom
-        # 1 = se bottom
-        # 2 = sw bottom
-        # 3 = nw bottom
-        # 4 = ne top
-        # 5 = se top
-        # 6 = sw top
-        # 7 = nw top
-        self.rotationFlags = unpack('B', tileData[7:8])[0]
-
 class Terrain(object):
-    def __init__(self, terrainData):
+    def __init__(self, size, tiles):
         self.tiles = []
-        (sizeX, sizeZ) = unpack('2B', terrainData[0:2])
-        self.size = (sizeX, sizeZ)
-        #print("terrain size", sizeX, sizeZ)
-        offset = 2
+        (sizeX, sizeZ) = size
+        self.size = size
         for y in range(2):
+            offset = 256 * y
             level = []
             for z in range(sizeZ):
                 row = []
                 for x in range(sizeX):
-                    tileData = terrainData[offset:offset+8]
-                    tile = Tile(tileData)
-                    #print('tile', y, x, z, tile.height)
-                    row.append(tile)
-                    offset += 8
+                    row.append(tiles[offset])
+                    offset += 1
                 level.append(row)
             self.tiles.append(level)
-            # Skip to second level of terrain data
-            offset = 2 + 8 * 256
 
 class Map(object):
     def __init__(self):
@@ -2223,8 +2215,15 @@ class Map(object):
         self.ambientLightColor = read(RGB888)
         self.backgroundColors = read(RGB888 * 2)
         # done reading chunk 0x19
-        
-        self.terrain = Terrain(self.resources.get_terrain())
+
+        # reading chunk 0x1a
+        data = self.resources.chunks[0x1a].chunks[0x1a]
+        ofs = 0
+        terrainSize = read(c_uint8 * 2)
+        # weird, it leaves room for 256 total tiles for the first xz plane, and then the second is packed?
+        terrainTiles = read(TerrainTile * (256 + terrainSize[0] * terrainSize[1]))
+        self.terrain = Terrain(terrainSize, terrainTiles)
+        # done reading chunk 0x1a
 
 
         bboxMin = [math.inf] * 3
@@ -2303,12 +2302,12 @@ class Map(object):
                     terrainData += (''
                         + pack('B', (tile.unknown0_6 << 6) | tile.surfaceType)
                         + pack('B', tile.unknown1)
-                        + pack('B', tile.height)
+                        + pack('B', tile.halfHeight)
                         + pack('B', (tile.depth << 5) | tile.slopeHeight)
                         + pack('B', tile.slopeType)
                         + pack('B', tile.unknown5)
                         + pack('B', (tile.unknown6_2 << 2) | (tile.cantWalk << 1) | tile.cantCursor)
-                        + pack('B', tile.rotationFlags)
+                        + pack('B', tile.rotFlags)
                     )
             # Skip to second level of terrain data
             terrainData += '\x00' * (8 * 256 - 8 * max_x * max_z)
@@ -2602,7 +2601,7 @@ def load(context,
                     for (i, q) in enumerate(quadVtxs):
                         tmeshVtxs.append((
                             x + .5 + q[0],
-                            -.5 * (tile.height + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
+                            -.5 * (tile.halfHeight + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
                             z + .5 + q[1]
                         ))
                     tilesFlattened.append(tile)
@@ -2626,15 +2625,15 @@ def load(context,
             'depth',
             'cantCursor',
             'cantWalk',
-            'rotationFlags',
-            'unknown0_6',
-            'unknown1',
-            'unknown5',
-            'unknown6_2'
+            'rotFlags',
+            'unk0_6',
+            'unk1',
+            'unk5',
+            'unk6_2'
             # via terrain mesh
-            #'height',
-            #'slopeType',
+            #'halfHeight',
             #'slopeHeight',
+            #'slopeType',
         ]
         tags = {}
         for name in tagNames:
@@ -2646,7 +2645,7 @@ def load(context,
         bm.faces.ensure_lookup_table()
         for (i, tile) in enumerate(tilesFlattened):
             for name in tagNames:
-                bm.faces[i][tags[name]] = tile.__dict__[name]
+                bm.faces[i][tags[name]] = getattr(tile, name)
         if bpy.context.mode == 'EDIT_MESH':
             bm.updated_edit_mesh(tmeshObj.data)
         else:
