@@ -506,7 +506,7 @@ class Resources(object):
                 + pack('BB', *polygon.A.texcoord)
                 + pack('BB', *[(polygon.unknown2_4 << 4) | polygon.paletteIndex, polygon.unknown3])
                 + pack('BB', *polygon.B.texcoord)
-                + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texturePage, polygon.unknown4])
+                + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texturePage, polygon.unknown7])
                 + pack('BB', *polygon.C.texcoord)
             )
         for polygon in tex_quad:
@@ -517,7 +517,7 @@ class Resources(object):
                 + pack('BB', *polygon.A.texcoord)
                 + pack('BB', *[(polygon.unknown2_4 << 4) + polygon.paletteIndex, polygon.unknown3])
                 + pack('BB', *polygon.B.texcoord)
-                + pack('BB', *[(polygon.unknown6_2 << 2) + polygon.texturePage, polygon.unknown4])
+                + pack('BB', *[(polygon.unknown6_2 << 2) + polygon.texturePage, polygon.unknown7])
                 + pack('BB', *polygon.C.texcoord)
                 + pack('BB', *polygon.D.texcoord)
             )
@@ -601,19 +601,17 @@ class Resources(object):
         untex_tri_data = ''
         untex_quad_data = ''
         for polygon in tex_tri:
-            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
-            tex_tri_data += pack('<H', vis)
+            tex_tri_data += pack('<H', polygon.visAngles)
         tex_tri_data += '\x00' * (1024 - len(tex_tri_data))
         for polygon in tex_quad:
-            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
-            tex_quad_data += pack('<H', vis)
+            tex_quad_data += pack('<H', polygon.visAngles)
         tex_quad_data += '\x00' * (1536 - len(tex_quad_data))
         for polygon in untex_tri:
-            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
+            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visAngles) ])
             untex_tri_data += pack('<H', vis)
         untex_tri_data += '\x00' * (128 - len(untex_tri_data))
         for polygon in untex_quad:
-            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visible_angles) ])
+            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visAngles) ])
             untex_quad_data += pack('<H', vis)
         untex_quad_data += '\x00' * (512 - len(untex_quad_data))
         visible_angles_data = tex_tri_data + tex_quad_data + untex_tri_data + untex_quad_data
@@ -2106,63 +2104,24 @@ gnslines = {
 ################################ fft/map/__init__.py ################################
 
 class VertexTex(object):
-    def __init__(self, point, normalData=None, texcoordData=None):
-        self.point = point
-        self.normal = Normal.from_buffer_copy(normalData).toTuple()
-        self.texcoord = ubyte2_t.from_buffer_copy(texcoordData).toTuple()
-
-class VertexUntex(object):
-    def __init__(self, point, normalData=None, texcoordData=None):
-        self.point = point
+    def __init__(self, point, normal, texcoord):
+        self.point = point.toTuple()
+        self.normal = normal.toTuple()
+        self.texcoord = texcoord.toTuple()
 
 class TriangleTex(object):
-    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, terrainCoordsData=None, unknown5=None):
-        self.A = VertexTex(
-            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
-            normalData[0:6],
-            texcoordData[0:2])
-        self.B = VertexTex(
-            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
-            normalData[6:12],
-            texcoordData[4:6])
-        self.C = VertexTex(
-            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
-            normalData[12:18],
-            texcoordData[8:10])
-        self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
-        self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
-        self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
-        self.unknown3 = unpack('B', texcoordData[3:4])[0]
-        self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
-        self.unknown4 = unpack('B', texcoordData[7:8])[0]
-        (val1, tx) = unpack('BB', terrainCoordsData)
-        tz = val1 >> 1
-        tlvl = val1 & 1
-        self.terrainCoords = (tx, tz, tlvl)
-        
-        vis = unpack('H', visangle)[0]
-        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
-        return self
-    
-    def vertices(self):
-        for index in 'ABC':
-            yield getattr(self, index)
-
-class TriangleUntex(object):
-    def from_data(self, pointData, visangle, unknown5=None):
-        self.A = VertexUntex(
-            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
-        )
-        self.B = VertexUntex(
-            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
-        )
-        self.C = VertexUntex(
-            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
-        )
-        self.unknown5 = unknown5
-        
-        vis = unpack('H', visangle)[0]
-        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
+    def fromData(self, points, normals, texFace, tilePos, visAngles):
+        self.A = VertexTex(points[0], normals[0], texFace.uv0)
+        self.B = VertexTex(points[1], normals[1], texFace.uv1)
+        self.C = VertexTex(points[2], normals[2], texFace.uv2)
+        self.paletteIndex = texFace.pal
+        self.texturePage = texFace.page
+        self.unknown2_4 = texFace.unk2_4
+        self.unknown3 = texFace.unk3
+        self.unknown6_2 = texFace.unk6_2
+        self.unknown7 = texFace.unk7
+        self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)
+        self.visAngles = visAngles
         return self
     
     def vertices(self):
@@ -2170,34 +2129,19 @@ class TriangleUntex(object):
             yield getattr(self, index)
 
 class QuadTex(object):
-    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
-        self.A = VertexTex(
-            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
-            normalData[0:6],
-            texcoordData[0:2])
-        self.B = VertexTex(
-            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
-            normalData[6:12],
-            texcoordData[4:6])
-        self.C = VertexTex(
-            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
-            normalData[12:18],
-            texcoordData[8:10])
-        self.D = VertexTex(
-            short3_t.from_buffer_copy(pointData[18:24]).toTuple(),
-            normalData[18:24],
-            texcoordData[10:12])
-        self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
-        self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
-        self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
-        self.unknown3 = unpack('B', texcoordData[3:4])[0]
-        self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
-        self.unknown4 = unpack('B', texcoordData[7:8])[0]
-        (tyz, tx) = unpack('BB', terrainCoordsData)
-        self.terrainCoords = (tx, tyz >> 1, tyz & 0x01)
-        
-        vis = unpack('H', visangle)[0]
-        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
+    def fromData(self, points, normals, texFace, tilePos, visAngles):
+        self.A = VertexTex(points[0], normals[0], texFace.uv0)
+        self.B = VertexTex(points[1], normals[1], texFace.uv1)
+        self.C = VertexTex(points[2], normals[2], texFace.uv2)
+        self.D = VertexTex(points[3], normals[3], texFace.uv3)
+        self.paletteIndex = texFace.pal
+        self.texturePage = texFace.page
+        self.unknown2_4 = texFace.unk2_4
+        self.unknown3 = texFace.unk3
+        self.unknown6_2 = texFace.unk6_2
+        self.unknown7 = texFace.unk7
+        self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)        
+        self.visAngles = visAngles
         return self
 
     def vertices(self):
@@ -2205,24 +2149,33 @@ class QuadTex(object):
             yield getattr(self, index)
 
 
+
+
+class VertexUntex(object):
+    def __init__(self, point):
+        self.point = point.toTuple()
+
+class TriangleUntex(object):
+    def fromData(self, points, unknown, visAngles):
+        self.A = VertexUntex(points[0])
+        self.B = VertexUntex(points[1])
+        self.C = VertexUntex(points[2])
+        self.unknown = unknown
+        self.visAngles = visAngles
+        return self
+    
+    def vertices(self):
+        for index in 'ABC':
+            yield getattr(self, index)
+
 class QuadUntex(object):
-    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
-        self.A = VertexUntex(
-            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
-        )
-        self.B = VertexUntex(
-            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
-        )
-        self.C = VertexUntex(
-            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
-        )
-        self.D = VertexUntex(
-            short3_t.from_buffer_copy(pointData[18:24]).toTuple(),
-        )
-        self.unknown5 = unknown5
-        
-        vis = unpack('H', visangle)[0]
-        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
+    def fromData(self, points, unknown, visAngles):
+        self.A = VertexUntex(points[0])
+        self.B = VertexUntex(points[1])
+        self.C = VertexUntex(points[2])
+        self.D = VertexUntex(points[3])
+        self.unknown = unknown
+        self.visAngles = visAngles
         return self
 
     def vertices(self):
@@ -2452,19 +2405,45 @@ class Map(object):
             self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
         self.center = tuple(self.center)
 
-        """
-        self.polygonTriTex = []
+        triTexs = []
         for i in range(hdr.numTriTex):
-            self.polygonTriTex.append(TriangleTex().from_data(
-                triTexVtxs[3*i:3*i+3],
+            triTexs.append(TriangleTex().fromData(
+                triTexVtxs[3*i:3*(i+1)],
+                triTexNormals[3*i:3*(i+1)],
+                triTexFaces[i],
+                triTexTilePos[i],
+                0   # TODO visangle
             ))
-        """
-        self.polygons = (
-                  list(self.getTriTexs(hdr, data))
-                + list(self.getQuadTexs(hdr, data))
-                + list(self.getTriUntexs(hdr, data))
-                + list(self.getQuadUntexs(hdr, data)))
 
+        quadTexs = []
+        for i in range(hdr.numQuadTex):
+            quadTexs.append(QuadTex().fromData(
+                quadTexVtxs[4*i:4*(i+1)],
+                quadTexNormals[4*i:4*(i+1)],
+                quadTexFaces[i],
+                quadTexTilePos[i],
+                0    # TODO visangle
+            ))
+
+        triUntexs = []
+        for i in range(hdr.numTriUntex):
+            triUntexs.append(TriangleUntex().fromData(
+                triUntexVtxs[3*i:3*(i+1)],
+                triUntexUnknowns[i],
+                0   # TODO visangle
+            ))
+
+        quadUntexs = []
+        for i in range(hdr.numQuadUntex):
+            quadUntexs.append(QuadUntex().fromData(
+                quadUntexVtxs[4*i:4*(i+1)],
+                quadUntexUnknowns[i],
+                0    # TODO visangle
+            ))
+
+        self.polygons = triTexs + quadTexs + triUntexs + quadUntexs
+
+    """
     # check.
     def getTriTexs(self, hdr, data):
         pointData = self.resources.get_tex_3gon_xyz(hdr, data)
@@ -2473,7 +2452,7 @@ class Map(object):
         terrainData = self.resources.get_tex_3gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_3gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(pointData, visangles, normalData, tcData, terrainData):
-            polygon = TriangleTex().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
+            polygon = TriangleTex().fromData(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2484,7 +2463,7 @@ class Map(object):
         terrainData = self.resources.get_tex_4gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_4gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(points, visangles, normalData, tcData, terrainData):
-            polygon = QuadTex().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
+            polygon = QuadTex().fromData(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2493,7 +2472,7 @@ class Map(object):
         unknowns = self.resources.get_untex_3gon_unknown(hdr, data)
         visangles = self.resources.get_untex_3gon_vis()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = TriangleUntex().from_data(pointData, visangle, unknown5=unknown)
+            polygon = TriangleUntex().fromData(pointData, visangle, unknown5=unknown)
             yield polygon
 
     # check.
@@ -2502,8 +2481,9 @@ class Map(object):
         unknowns = self.resources.get_untex_4gon_unknown(hdr, data)
         visangles = self.resources.get_untex_4gon_vis()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = QuadUntex().from_data(pointData, visangle, unknown5=unknown)
+            polygon = QuadUntex().fromData(pointData, visangle, unknown5=unknown)
             yield polygon
+    """
 
     def write(self):
         #self.texture.write()
@@ -2533,8 +2513,8 @@ class Map(object):
                         + pack('B', (tile.depth << 5) | tile.slopeHeight)
                         + pack('B', tile.slopeType)
                         + pack('B', tile.unknown5)
-                        + pack('B', (tile.unknown4 << 2) | (tile.cantWalk << 1) | tile.cantCursor)
-                        + pack('B', tile.unknown6_2)
+                        + pack('B', (tile.unknown6_2 << 2) | (tile.cantWalk << 1) | tile.cantCursor)
+                        + pack('B', tile.rotationFlags)
                     )
             # Skip to second level of terrain data
             terrainData += '\x00' * (8 * 256 - 8 * max_x * max_z)
