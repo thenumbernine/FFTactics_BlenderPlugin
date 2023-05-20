@@ -261,130 +261,6 @@ class Resources(object):
                     self.chunks[i] = resource
 
     # check.
-    def get_tex_3gon_xyz(self, hdr, data):
-        offset = 8
-        for i in range(hdr.numTriTex):
-            yield data[offset:offset+18]
-            offset += 18
-
-    # check.
-    def get_tex_4gon_xyz(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18
-        for i in range(hdr.numQuadTex):
-            yield data[offset:offset+24]
-            offset += 24
-
-    # check.
-    def get_untex_3gon_xyz(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24
-        for i in range(hdr.numTriUntex):
-            yield data[offset:offset+18]
-            offset += 18
-
-    # check.
-    def get_untex_4gon_xyz(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18
-        for i in range(hdr.numQuadUntex):
-            yield data[offset:offset+24]
-            offset += 24
-
-    # check.
-    def get_tex_3gon_norm(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24
-        for i in range(hdr.numTriTex):
-            yield data[offset:offset+18]
-            offset += 18
-
-    # check.
-    def get_tex_4gon_norm(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18
-        for i in range(hdr.numQuadTex):
-            yield data[offset:offset+24]
-            offset += 24
-
-    # check.
-    def get_tex_3gon_uv(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24
-        for i in range(hdr.numTriTex):
-            texcoordData = data[offset:offset+10]
-            yield texcoordData
-            offset += 10
-
-    # check.
-    def get_tex_4gon_uv(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10
-        for i in range(hdr.numQuadTex):
-            texcoordData = data[offset:offset+12]
-            yield texcoordData
-            offset += 12
-
-    # check.
-    def get_untex_3gon_unknown(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12
-        for i in range(hdr.numTriUntex):
-            yield data[offset:offset+4]
-            offset += 4
-
-    # check.
-    def get_untex_4gon_unknown(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12 + hdr.numTriUntex * 4
-        for i in range(hdr.numQuadUntex):
-            yield data[offset:offset+4]
-            offset += 4
-
-    # check.
-    def get_tex_3gon_terrain_coords(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12 + hdr.numTriUntex * 4 + hdr.numQuadUntex * 4
-        for i in range(hdr.numTriTex):
-            terrainCoordData = data[offset:offset+2]
-            yield terrainCoordData
-            offset += 2
-
-    # check.
-    def get_tex_4gon_terrain_coords(self, hdr, data):
-        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12 + hdr.numTriUntex * 4 + hdr.numQuadUntex * 4 + hdr.numTriTex * 2
-        for i in range(hdr.numQuadTex):
-            terrainCoordData = data[offset:offset+2]
-            yield terrainCoordData
-            offset += 2
-
-    # check.
-    def get_tex_3gon_vis(self):
-        resource = self.chunks[0x2c]
-        data = resource.chunks[0x2c]
-        offset = 0x380
-        for i in range(512):
-            yield data[offset:offset+2]
-            offset += 2
-
-    # check.
-    def get_tex_4gon_vis(self):
-        resource = self.chunks[0x2c]
-        data = resource.chunks[0x2c]
-        offset = 0x380 + 512 * 2
-        for i in range(768):
-            yield data[offset:offset+2]
-            offset += 2
-
-    # check.
-    def get_untex_3gon_vis(self):
-        resource = self.chunks[0x2c]
-        data = resource.chunks[0x2c]
-        offset = 0x380 + 512 * 2 + 768 * 2
-        for i in range(64):
-            yield data[offset:offset+2]
-            offset += 2
-
-    # check.
-    def get_untex_4gon_vis(self):
-        resource = self.chunks[0x2c]
-        data = resource.chunks[0x2c]
-        offset = 0x380 + 512 * 2 + 768 * 2 + 64 * 2
-        for i in range(256):
-            yield data[offset:offset+2]
-            offset += 2
-
-    # check.
     def get_color_palettes(self):
         resource = self.chunks[0x11]
         data = resource.chunks[0x11]
@@ -462,33 +338,19 @@ class Resources(object):
                 chunk.write()
                 written.append(chunk.file_path)
 
+    # TODO this is now written as if 'self' is the Map class ... gotta fix that
     def put_polygons(self, polygons, toc_offset=0x40):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 0
-        tex_tri = []
-        tex_quad = []
-        untex_tri = []
-        untex_quad = []
-        for polygon in polygons:
-            if isinstance(polygon, QuadTex):
-                tex_quad.append(polygon.source)
-            elif isinstance(polygon, QuadUntex):
-                untex_quad.append(polygon.source)
-            elif isinstance(polygon, TriTex):
-                tex_tri.append(polygon.source)
-            elif isinstance(polygon, QuadUntex):
-                untex_tri.append(polygon.source)
-            else:
-                raise "PYTHON SUCKS"
-        polygons_data = pack('<4H', *[len(x) for x in [tex_tri, tex_quad, untex_tri, untex_quad]])
+        polygons_data = pack('<4H', *[len(x) for x in [self.triTexs, self.quadTexs, self.triUntexs, self.quadUntexs]])
         for polygon in polygons:
             for v in polygon.vtxs:
                 polygons_data += pack('<3h', *v.point)
-        for polygon in tex_tri + tex_quad:
+        for polygon in self.triTexs + self.quadTexs:
             for v in polygon.vtxs:
                 polygons_data += pack('<3h', *[int(x * 4096.) for x in v.normal])
-        for polygon in tex_tri:
+        for polygon in self.triTexs:
             if polygon.unknown3 == 0:
                 polygon.unknown3 = 120
                 polygon.unknown6_2 = 3
@@ -499,7 +361,7 @@ class Resources(object):
                 + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texturePage, polygon.unknown7])
                 + pack('BB', *polygon.vtxs[2].texcoord)
             )
-        for polygon in tex_quad:
+        for polygon in self.quadTexs:
             if polygon.unknown3 == 0:
                 polygon.unknown3 = 120
                 polygon.unknown6_2 = 3
@@ -511,14 +373,14 @@ class Resources(object):
                 + pack('BB', *polygon.vtxs[2].texcoord)
                 + pack('BB', *polygon.vtxs[3].texcoord)
             )
-        for polygon in untex_tri:
+        for polygon in self.triUntexs:
             polygons_data += polygon.unknown5
-        for polygon in untex_quad:
+        for polygon in self.quadUntexs:
             polygons_data += polygon.unknown5
-        for polygon in tex_tri:
+        for polygon in self.triTexs:
             val1 = (polygon.terrainCoords[1] << 1) + polygon.terrainCoords[2]
             polygons_data += pack('BB', val1, polygon.terrainCoords[0])
-        for polygon in tex_quad:
+        for polygon in self.quadTexs:
             val1 = (polygon.terrainCoords[1] << 1) + polygon.terrainCoords[2]
             polygons_data += pack('BB', val1, polygon.terrainCoords[0])
         resource.chunks[toc_offset >> 2] = polygons_data
@@ -573,36 +435,21 @@ class Resources(object):
         resource = self.chunks[toc_offset >> 2]
         data = resource.chunks[toc_offset >> 2]
         offset = 0x380
-        tex_tri = []
-        tex_quad = []
-        untex_tri = []
-        untex_quad = []
-        for polygon in polygons:
-            if isinstance(polygon, QuadTex):
-                tex_quad.append(polygon.source)
-            elif isinstance(polygon, QuadUntex):
-                untex_quad.append(polygon.source)
-            elif isinstance(polygon, TriTex):
-                tex_tri.append(polygon.source)
-            elif isinstance(polygon, QuadUntex):
-                untex_tri.append(polygon.source)
-            else:
-                raise "PYTHON SUCKS"
         tex_tri_data = ''
         tex_quad_data = ''
         untex_tri_data = ''
         untex_quad_data = ''
-        for polygon in tex_tri:
+        for polygon in self.triTexs:
             tex_tri_data += pack('<H', polygon.visAngles)
         tex_tri_data += '\x00' * (1024 - len(tex_tri_data))
-        for polygon in tex_quad:
+        for polygon in self.quadTexs:
             tex_quad_data += pack('<H', polygon.visAngles)
         tex_quad_data += '\x00' * (1536 - len(tex_quad_data))
-        for polygon in untex_tri:
+        for polygon in self.triUntexs:
             vis = sum([ x << (15-i) for i, x in enumerate(polygon.visAngles) ])
             untex_tri_data += pack('<H', vis)
         untex_tri_data += '\x00' * (128 - len(untex_tri_data))
-        for polygon in untex_quad:
+        for polygon in self.quadUntexs:
             vis = sum([ x << (15-i) for i, x in enumerate(polygon.visAngles) ])
             untex_quad_data += pack('<H', vis)
         untex_quad_data += '\x00' * (512 - len(untex_quad_data))
@@ -2345,20 +2192,24 @@ class Map(object):
         self.textureFiles = self.getTextureFiles(self.sitIndex)
         self.resourceFiles = self.getResourceFiles(self.sitIndex)
         self.resources = Resources()
-        # how often is this more than 1?
+        # how often is this more than 1 file?
         print('self.textureFiles', self.textureFiles)
         print('self.resourceFiles', self.resourceFiles)
 
     # check.
     def readPolygons(self):
-        data = self.resources.chunks[0x10].chunks[0x10]
+        data = None
         ofs = 0
+        
         def read(cl):
             nonlocal ofs
             res = cl.from_buffer_copy(data[ofs:ofs+sizeof(cl)])
             ofs += sizeof(cl)
             return res
         
+        # reading from chunk 0x10
+        data = self.resources.chunks[0x10].chunks[0x10]
+        ofs = 0
         hdr = read(MeshHeader)
         triTexVtxs = read(short3_t * (3 * hdr.numTriTex))
         quadTexVtxs = read(short3_t * (4 * hdr.numQuadTex))
@@ -2372,7 +2223,28 @@ class Map(object):
         quadUntexUnknowns = read(c_uint32 * hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
         triTexTilePos = read(TilePos * hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
         quadTexTilePos = read(TilePos * hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
-        # and that's it from chunk # 0x10
+        # and that's it from chunk 0x10
+
+        # reading chunk 0x2c
+        data = self.resources.chunks[0x2c].chunks[0x2c]  # ...
+        ofs = 0x380
+        # from the 'put_visible_angles' function looks like this is written to a 1024 byte block always
+        triTexVisAngles = read(c_uint16 * 512)
+        # ... and this is a 1536 byte block always
+        quadTexVisAngles = read(c_uint16 * 768)
+        # ... and yup 
+        triUntexVisAngles = read(c_uint16 * 64)
+        # ... yup
+        quadUntexVisAngles = read(c_uint16 * 256)
+        # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
+        # GaneshaDx has these constants: 
+        MaxTexturedTriangles = 360
+        MaxTexturedQuads = 710
+        MaxUntexturedTriangles = 64
+        MaxUntexturedQuads = 256
+        # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
+
+        # done reading chunk 0x2c
 
         bboxMin = [math.inf] * 3
         bboxMax = [-math.inf] * 3
@@ -2387,85 +2259,44 @@ class Map(object):
             self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
         self.center = tuple(self.center)
 
-        triTexs = []
+        self.triTexs = []
         for i in range(hdr.numTriTex):
-            triTexs.append(TriTex().fromData(
+            self.triTexs.append(TriTex().fromData(
                 triTexVtxs[3*i:3*(i+1)],
                 triTexNormals[3*i:3*(i+1)],
                 triTexFaces[i],
                 triTexTilePos[i],
-                0   # TODO visangle
+                triTexVisAngles[i]
             ))
 
-        quadTexs = []
+        self.quadTexs = []
         for i in range(hdr.numQuadTex):
-            quadTexs.append(QuadTex().fromData(
+            self.quadTexs.append(QuadTex().fromData(
                 quadTexVtxs[4*i:4*(i+1)],
                 quadTexNormals[4*i:4*(i+1)],
                 quadTexFaces[i],
                 quadTexTilePos[i],
-                0    # TODO visangle
+                quadTexVisAngles[i]
             ))
 
-        triUntexs = []
+        self.triUntexs = []
         for i in range(hdr.numTriUntex):
-            triUntexs.append(TriUntex().fromData(
+            self.triUntexs.append(TriUntex().fromData(
                 triUntexVtxs[3*i:3*(i+1)],
                 triUntexUnknowns[i],
-                0   # TODO visangle
+                triUntexVisAngles[i]
             ))
 
-        quadUntexs = []
+        self.quadUntexs = []
         for i in range(hdr.numQuadUntex):
-            quadUntexs.append(QuadUntex().fromData(
+            self.quadUntexs.append(QuadUntex().fromData(
                 quadUntexVtxs[4*i:4*(i+1)],
                 quadUntexUnknowns[i],
-                0    # TODO visangle
+                quadUntexVisAngles[i]
             ))
 
-        self.polygons = triTexs + quadTexs + triUntexs + quadUntexs
-
-    """
-    # check.
-    def getTriTexs(self, hdr, data):
-        pointData = self.resources.get_tex_3gon_xyz(hdr, data)
-        normalData = self.resources.get_tex_3gon_norm(hdr, data)
-        tcData = self.resources.get_tex_3gon_uv(hdr, data)
-        terrainData = self.resources.get_tex_3gon_terrain_coords(hdr, data)
-        visangles = self.resources.get_tex_3gon_vis()
-        for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(pointData, visangles, normalData, tcData, terrainData):
-            polygon = TriTex().fromData(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
-            yield polygon
-
-    # check.
-    def getQuadTexs(self, hdr, data):
-        points = self.resources.get_tex_4gon_xyz(hdr, data)
-        normalData = self.resources.get_tex_4gon_norm(hdr, data)
-        tcData = self.resources.get_tex_4gon_uv(hdr, data)
-        terrainData = self.resources.get_tex_4gon_terrain_coords(hdr, data)
-        visangles = self.resources.get_tex_4gon_vis()
-        for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(points, visangles, normalData, tcData, terrainData):
-            polygon = QuadTex().fromData(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
-            yield polygon
-
-    # check.
-    def getTriUntexs(self, hdr, data):
-        points = self.resources.get_untex_3gon_xyz(hdr, data)
-        unknowns = self.resources.get_untex_3gon_unknown(hdr, data)
-        visangles = self.resources.get_untex_3gon_vis()
-        for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = TriUntex().fromData(pointData, visangle, unknown5=unknown)
-            yield polygon
-
-    # check.
-    def getQuadUntexs(self, hdr, data):
-        points = self.resources.get_untex_4gon_xyz(hdr, data)
-        unknowns = self.resources.get_untex_4gon_unknown(hdr, data)
-        visangles = self.resources.get_untex_4gon_vis()
-        for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = QuadUntex().fromData(pointData, visangle, unknown5=unknown)
-            yield polygon
-    """
+    def polygons(self):
+        return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
 
     def write(self):
         #self.texture.write()
@@ -2641,18 +2472,20 @@ def load(context,
         for material in materials:
             mesh.materials.append(material)
 
+        # flip face order
+        # I guess I could just set the cw vs ccw ...
         def vertexesForPoly(poly):
             if len(poly.vtxs) == 4:
-                return [poly.vtxs[0], poly.vtxs[1], poly.vtxs[3], poly.vtxs[2]]        # cw => ccw and tristrip -> quad
-            return [poly.vtxs[0], poly.vtxs[1], poly.vtxs[2]]                    # cw front-face => ccw front-face
+                return [poly.vtxs[2], poly.vtxs[3], poly.vtxs[1], poly.vtxs[0]]        # cw => ccw and tristrip -> quad
+            return [poly.vtxs[2], poly.vtxs[1], poly.vtxs[0]]                    # cw front-face => ccw front-face
 
         vi = 0
         vti = 0
-        for s in map.polygons:
+        for s in map.polygons():
             V = vertexesForPoly(s)
             n = len(V)
             for v in V:
-                vtxHasTexCoord = hasattr(v, 'normal')
+                vtxHasTexCoord = isinstance(s, TriTex) or isinstance(s, QuadTex)
                 verts_loc.append(v.point)
 
                 if vtxHasTexCoord:
