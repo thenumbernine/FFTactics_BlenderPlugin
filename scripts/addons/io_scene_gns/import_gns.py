@@ -261,125 +261,89 @@ class Resources(object):
                     self.chunks[i] = resource
 
     # check.
-    def get_tex_3gon_xyz(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
+    def get_tex_3gon_xyz(self, hdr, data):
         offset = 8
-        for i in range(triCount):
+        for i in range(hdr.numTriTex):
             yield data[offset:offset+18]
             offset += 18
 
     # check.
-    def get_tex_4gon_xyz(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18
-        for i in range(quadCount):
+    def get_tex_4gon_xyz(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18
+        for i in range(hdr.numQuadTex):
             yield data[offset:offset+24]
             offset += 24
 
     # check.
-    def get_untex_3gon_xyz(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24
-        for i in range(untriCount):
+    def get_untex_3gon_xyz(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24
+        for i in range(hdr.numTriUntex):
             yield data[offset:offset+18]
             offset += 18
 
     # check.
-    def get_untex_4gon_xyz(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18
-        for i in range(unquadCount):
+    def get_untex_4gon_xyz(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18
+        for i in range(hdr.numQuadUntex):
             yield data[offset:offset+24]
             offset += 24
 
     # check.
-    def get_tex_3gon_norm(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24
-        for i in range(triCount):
+    def get_tex_3gon_norm(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24
+        for i in range(hdr.numTriTex):
             yield data[offset:offset+18]
             offset += 18
 
     # check.
-    def get_tex_4gon_norm(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18
-        for i in range(quadCount):
+    def get_tex_4gon_norm(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18
+        for i in range(hdr.numQuadTex):
             yield data[offset:offset+24]
             offset += 24
 
     # check.
-    def get_tex_3gon_uv(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24
-        for i in range(triCount):
+    def get_tex_3gon_uv(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24
+        for i in range(hdr.numTriTex):
             texcoordData = data[offset:offset+10]
             yield texcoordData
             offset += 10
 
     # check.
-    def get_tex_4gon_uv(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10
-        for i in range(quadCount):
+    def get_tex_4gon_uv(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10
+        for i in range(hdr.numQuadTex):
             texcoordData = data[offset:offset+12]
             yield texcoordData
             offset += 12
 
     # check.
-    def get_untex_3gon_unknown(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12
-        for i in range(untriCount):
+    def get_untex_3gon_unknown(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12
+        for i in range(hdr.numTriUntex):
             yield data[offset:offset+4]
             offset += 4
 
     # check.
-    def get_untex_4gon_unknown(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4
-        for i in range(unquadCount):
+    def get_untex_4gon_unknown(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12 + hdr.numTriUntex * 4
+        for i in range(hdr.numQuadUntex):
             yield data[offset:offset+4]
             offset += 4
 
     # check.
-    def get_tex_3gon_terrain_coords(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4 + unquadCount * 4
-        for i in range(triCount):
+    def get_tex_3gon_terrain_coords(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12 + hdr.numTriUntex * 4 + hdr.numQuadUntex * 4
+        for i in range(hdr.numTriTex):
             terrainCoordData = data[offset:offset+2]
             yield terrainCoordData
             offset += 2
 
     # check.
-    def get_tex_4gon_terrain_coords(self):
-        resource = self.chunks[0x10]
-        data = resource.chunks[0x10]
-        (triCount, quadCount, untriCount, unquadCount) = unpack('<4H', data[0:8])
-        offset = 8 + triCount * 18 + quadCount * 24 + untriCount * 18 + unquadCount * 24 + triCount * 18 + quadCount * 24 + triCount * 10 + quadCount * 12 + untriCount * 4 + unquadCount * 4 + triCount * 2
-        for i in range(quadCount):
+    def get_tex_4gon_terrain_coords(self, hdr, data):
+        offset = 8 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriUntex * 18 + hdr.numQuadUntex * 24 + hdr.numTriTex * 18 + hdr.numQuadTex * 24 + hdr.numTriTex * 10 + hdr.numQuadTex * 12 + hdr.numTriUntex * 4 + hdr.numQuadUntex * 4 + hdr.numTriTex * 2
+        for i in range(hdr.numQuadTex):
             terrainCoordData = data[offset:offset+2]
             yield terrainCoordData
             offset += 2
@@ -2403,34 +2367,24 @@ class Map(object):
             ofs += sizeof(cl)
             return res
         
-        self.meshHdr = read(MeshHeader)
-        triTexVtxs = read(short3_t * (3 * self.meshHdr.numTriTex))
-        quadTexVtxs = read(short3_t * (4 * self.meshHdr.numQuadTex))
-        triUntexVtxs = read(short3_t * (3 * self.meshHdr.numTriUntex))
-        quadUntexVtxs = read(short3_t * (4 * self.meshHdr.numQuadUntex))
-        triTexNormals = read(Normal * (3 * self.meshHdr.numTriTex))
-        quadTexNormals = read(Normal * (4 * self.meshHdr.numQuadTex))
-        triTexFaces = read(TriTexFace * self.meshHdr.numTriTex)
-        quadTexFaces = read(QuadTexFace * self.meshHdr.numQuadTex)
-        triUntexUnknowns = read(c_uint32 * self.meshHdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
-        quadUntexUnknowns = read(c_uint32 * self.meshHdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
-        triTexTilePos = read(TilePos * self.meshHdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
-        quadTexTilePos = read(TilePos * self.meshHdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
+        hdr = read(MeshHeader)
+        triTexVtxs = read(short3_t * (3 * hdr.numTriTex))
+        quadTexVtxs = read(short3_t * (4 * hdr.numQuadTex))
+        triUntexVtxs = read(short3_t * (3 * hdr.numTriUntex))
+        quadUntexVtxs = read(short3_t * (4 * hdr.numQuadUntex))
+        triTexNormals = read(Normal * (3 * hdr.numTriTex))
+        quadTexNormals = read(Normal * (4 * hdr.numQuadTex))
+        triTexFaces = read(TriTexFace * hdr.numTriTex)
+        quadTexFaces = read(QuadTexFace * hdr.numQuadTex)
+        triUntexUnknowns = read(c_uint32 * hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
+        quadUntexUnknowns = read(c_uint32 * hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
+        triTexTilePos = read(TilePos * hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
+        quadTexTilePos = read(TilePos * hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
         # and that's it from chunk # 0x10
 
         bboxMin = [math.inf] * 3
         bboxMax = [-math.inf] * 3
-        vs = []
-        # + operator doesn't work on ctype arrays ........
-        for v in triTexVtxs:
-            vs.append(v)
-        for v in quadTexVtxs:
-            vs.append(v)
-        for v in triUntexVtxs:
-            vs.append(v)
-        for v in quadUntexVtxs:
-            vs.append(v)
-        for v in vs:
+        for v in list(triTexVtxs) + list(quadTexVtxs) + list(triUntexVtxs) + list(quadUntexVtxs):
             v = v.toTuple()
             for i in range(3):
                 bboxMin[i] = min(bboxMin[i], v[i])
@@ -2441,49 +2395,48 @@ class Map(object):
             self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
         self.center = tuple(self.center)
 
-
         self.polygons = (
-                  list(self.get_tex_3gon())
-                + list(self.get_tex_4gon())
-                + list(self.get_untex_3gon())
-                + list(self.get_untex_4gon()))
+                  list(self.getTriTexs(hdr, data))
+                + list(self.getQuadTexs(hdr, data))
+                + list(self.getTriUntexs(hdr, data))
+                + list(self.getQuadUntexs(hdr, data)))
 
     # check.
-    def get_tex_3gon(self):
-        pointData = self.resources.get_tex_3gon_xyz()
-        normalData = self.resources.get_tex_3gon_norm()
-        tcData = self.resources.get_tex_3gon_uv()
-        terrainData = self.resources.get_tex_3gon_terrain_coords()
+    def getTriTexs(self, hdr, data):
+        pointData = self.resources.get_tex_3gon_xyz(hdr, data)
+        normalData = self.resources.get_tex_3gon_norm(hdr, data)
+        tcData = self.resources.get_tex_3gon_uv(hdr, data)
+        terrainData = self.resources.get_tex_3gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_3gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(pointData, visangles, normalData, tcData, terrainData):
             polygon = Triangle().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
-    def get_tex_4gon(self):
-        points = self.resources.get_tex_4gon_xyz()
-        normalData = self.resources.get_tex_4gon_norm()
-        tcData = self.resources.get_tex_4gon_uv()
-        terrainData = self.resources.get_tex_4gon_terrain_coords()
+    def getQuadTexs(self, hdr, data):
+        points = self.resources.get_tex_4gon_xyz(hdr, data)
+        normalData = self.resources.get_tex_4gon_norm(hdr, data)
+        tcData = self.resources.get_tex_4gon_uv(hdr, data)
+        terrainData = self.resources.get_tex_4gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_4gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(points, visangles, normalData, tcData, terrainData):
             polygon = Quad().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
-    def get_untex_3gon(self):
-        points = self.resources.get_untex_3gon_xyz()
+    def getTriUntexs(self, hdr, data):
+        points = self.resources.get_untex_3gon_xyz(hdr, data)
+        unknowns = self.resources.get_untex_3gon_unknown(hdr, data)
         visangles = self.resources.get_untex_3gon_vis()
-        unknowns = self.resources.get_untex_3gon_unknown()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
             polygon = Triangle().from_data(pointData, visangle, unknown5=unknown)
             yield polygon
 
     # check.
-    def get_untex_4gon(self):
-        points = self.resources.get_untex_4gon_xyz()
+    def getQuadUntexs(self, hdr, data):
+        points = self.resources.get_untex_4gon_xyz(hdr, data)
+        unknowns = self.resources.get_untex_4gon_unknown(hdr, data)
         visangles = self.resources.get_untex_4gon_vis()
-        unknowns = self.resources.get_untex_4gon_unknown()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
             polygon = Quad().from_data(pointData, visangle, unknown5=unknown)
             yield polygon
