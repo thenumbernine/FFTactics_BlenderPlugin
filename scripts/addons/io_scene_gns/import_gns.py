@@ -2105,65 +2105,122 @@ gnslines = {
 
 ################################ fft/map/__init__.py ################################
 
-class Vertex(object):
-    def __init__(self, pointData, normalData=None, texcoordData=None):
-        self.point = short3_t.from_buffer_copy(pointData).toTuple()
-        if normalData:
-            self.normal = Normal.from_buffer_copy(normalData).toTuple()
-        if texcoordData:
-            self.texcoord = ubyte2_t.from_buffer_copy(texcoordData).toTuple()
+class VertexTex(object):
+    def __init__(self, point, normalData=None, texcoordData=None):
+        self.point = point
+        self.normal = Normal.from_buffer_copy(normalData).toTuple()
+        self.texcoord = ubyte2_t.from_buffer_copy(texcoordData).toTuple()
 
-class Triangle(object):
+class VertexUntex(object):
+    def __init__(self, point, normalData=None, texcoordData=None):
+        self.point = point
+
+class TriangleTex(object):
+    def from_data(self, pointData, visangle, normalData=None, texcoordData=None, terrainCoordsData=None, unknown5=None):
+        self.A = Vertex(
+            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
+            normalData[0:6],
+            texcoordData[0:2])
+        self.B = Vertex(
+            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
+            normalData[6:12],
+            texcoordData[4:6])
+        self.C = Vertex(
+            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
+            normalData[12:18],
+            texcoordData[8:10])
+        self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
+        self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
+        self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
+        self.unknown3 = unpack('B', texcoordData[3:4])[0]
+        self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
+        self.unknown4 = unpack('B', texcoordData[7:8])[0]
+        (val1, tx) = unpack('BB', terrainCoordsData)
+        tz = val1 >> 1
+        tlvl = val1 & 1
+        self.terrainCoords = (tx, tz, tlvl)
+        
+        vis = unpack('H', visangle)[0]
+        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
+        return self
+    
+    def vertices(self):
+        for index in 'ABC':
+            yield getattr(self, index)
+
+class TriangleUntex(object):
+    def from_data(self, pointData, visangle, unknown5=None):
+        self.A = Vertex(
+            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
+        )
+        self.B = Vertex(
+            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
+        )
+        self.C = Vertex(
+            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
+        )
+        self.unknown5 = unknown5
+        
+        vis = unpack('H', visangle)[0]
+        self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
+        return self
+    
+    def vertices(self):
+        for index in 'ABC':
+            yield getattr(self, index)
+
+class QuadTex(object):
     def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
-        if normalData:
-            self.A = Vertex(pointData[0:6], normalData[0:6], texcoordData[0:2])
-            self.B = Vertex(pointData[6:12], normalData[6:12], texcoordData[4:6])
-            self.C = Vertex(pointData[12:18], normalData[12:18], texcoordData[8:10])
-            self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
-            self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
-            self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
-            self.unknown3 = unpack('B', texcoordData[3:4])[0]
-            self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
-            self.unknown4 = unpack('B', texcoordData[7:8])[0]
-            (val1, tx) = unpack('BB', terrainCoordsData)
-            tz = val1 >> 1
-            tlvl = val1 & 1
-            self.terrainCoords = (tx, tz, tlvl)
-        else:
-            self.A = Vertex(pointData[0:6])
-            self.B = Vertex(pointData[6:12])
-            self.C = Vertex(pointData[12:18])
-            self.unknown5 = unknown5
+        self.A = Vertex(
+            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
+            normalData[0:6],
+            texcoordData[0:2])
+        self.B = Vertex(
+            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
+            normalData[6:12],
+            texcoordData[4:6])
+        self.C = Vertex(
+            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
+            normalData[12:18],
+            texcoordData[8:10])
+        self.D = Vertex(
+            short3_t.from_buffer_copy(pointData[18:24]).toTuple(),
+            normalData[18:24],
+            texcoordData[10:12])
+        self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
+        self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
+        self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
+        self.unknown3 = unpack('B', texcoordData[3:4])[0]
+        self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
+        self.unknown4 = unpack('B', texcoordData[7:8])[0]
+        (tyz, tx) = unpack('BB', terrainCoordsData)
+        self.terrainCoords = (tx, tyz >> 1, tyz & 0x01)
+        
         vis = unpack('H', visangle)[0]
         self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
         return self
 
     def vertices(self):
-        for index in 'ABC':
+        for index in 'ABCD':
             yield getattr(self, index)
 
 
-class Quad(object):
+class QuadUntex(object):
     def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
-        if normalData:
-            self.A = Vertex(pointData[0:6], normalData[0:6], texcoordData[0:2])
-            self.B = Vertex(pointData[6:12], normalData[6:12], texcoordData[4:6])
-            self.C = Vertex(pointData[12:18], normalData[12:18], texcoordData[8:10])
-            self.D = Vertex(pointData[18:24], normalData[18:24], texcoordData[10:12])
-            self.paletteIndex = unpack('B', texcoordData[2:3])[0] & 0xf
-            self.texturePage = unpack('B', texcoordData[6:7])[0] & 0x3
-            self.unknown2_4 = (unpack('B', texcoordData[2:3])[0] >> 4) & 0xf
-            self.unknown3 = unpack('B', texcoordData[3:4])[0]
-            self.unknown6_2 = (unpack('B', texcoordData[6:7])[0] >> 2) & 0x3f
-            self.unknown4 = unpack('B', texcoordData[7:8])[0]
-            (tyz, tx) = unpack('BB', terrainCoordsData)
-            self.terrainCoords = (tx, tyz >> 1, tyz & 0x01)
-        else:
-            self.A = Vertex(pointData[0:6])
-            self.B = Vertex(pointData[6:12])
-            self.C = Vertex(pointData[12:18])
-            self.D = Vertex(pointData[18:24])
-            self.unknown5 = unknown5
+        self.A = Vertex(
+            short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
+        )
+        self.B = Vertex(
+            short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
+        )
+        self.C = Vertex(
+            short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
+        )
+        self.D = Vertex(
+            short3_t.from_buffer_copy(pointData[18:24]).toTuple(),
+        )
+        self.unknown5 = unknown5
+        
         vis = unpack('H', visangle)[0]
         self.visible_angles = [ (vis >> (15-x)) & 1 for x in range(16) ]
         return self
@@ -2395,6 +2452,13 @@ class Map(object):
             self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
         self.center = tuple(self.center)
 
+        """
+        self.polygonTriTex = []
+        for i in range(hdr.numTriTex):
+            self.polygonTriTex.append(TriangleTex().from_data(
+                triTexVtxs[3*i:3*i+3],
+            ))
+        """
         self.polygons = (
                   list(self.getTriTexs(hdr, data))
                 + list(self.getQuadTexs(hdr, data))
@@ -2409,7 +2473,7 @@ class Map(object):
         terrainData = self.resources.get_tex_3gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_3gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(pointData, visangles, normalData, tcData, terrainData):
-            polygon = Triangle().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
+            polygon = TriangleTex().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2420,7 +2484,7 @@ class Map(object):
         terrainData = self.resources.get_tex_4gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_4gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(points, visangles, normalData, tcData, terrainData):
-            polygon = Quad().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
+            polygon = QuadTex().from_data(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2429,7 +2493,7 @@ class Map(object):
         unknowns = self.resources.get_untex_3gon_unknown(hdr, data)
         visangles = self.resources.get_untex_3gon_vis()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = Triangle().from_data(pointData, visangle, unknown5=unknown)
+            polygon = TriangleUntex().from_data(pointData, visangle, unknown5=unknown)
             yield polygon
 
     # check.
@@ -2438,7 +2502,7 @@ class Map(object):
         unknowns = self.resources.get_untex_4gon_unknown(hdr, data)
         visangles = self.resources.get_untex_4gon_vis()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = Quad().from_data(pointData, visangle, unknown5=unknown)
+            polygon = QuadUntex().from_data(pointData, visangle, unknown5=unknown)
             yield polygon
 
     def write(self):
