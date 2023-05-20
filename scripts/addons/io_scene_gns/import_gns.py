@@ -2117,15 +2117,15 @@ class VertexUntex(object):
 
 class TriangleTex(object):
     def from_data(self, pointData, visangle, normalData=None, texcoordData=None, terrainCoordsData=None, unknown5=None):
-        self.A = Vertex(
+        self.A = VertexTex(
             short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
             normalData[0:6],
             texcoordData[0:2])
-        self.B = Vertex(
+        self.B = VertexTex(
             short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
             normalData[6:12],
             texcoordData[4:6])
-        self.C = Vertex(
+        self.C = VertexTex(
             short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
             normalData[12:18],
             texcoordData[8:10])
@@ -2150,13 +2150,13 @@ class TriangleTex(object):
 
 class TriangleUntex(object):
     def from_data(self, pointData, visangle, unknown5=None):
-        self.A = Vertex(
+        self.A = VertexUntex(
             short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
         )
-        self.B = Vertex(
+        self.B = VertexUntex(
             short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
         )
-        self.C = Vertex(
+        self.C = VertexUntex(
             short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
         )
         self.unknown5 = unknown5
@@ -2171,19 +2171,19 @@ class TriangleUntex(object):
 
 class QuadTex(object):
     def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
-        self.A = Vertex(
+        self.A = VertexTex(
             short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
             normalData[0:6],
             texcoordData[0:2])
-        self.B = Vertex(
+        self.B = VertexTex(
             short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
             normalData[6:12],
             texcoordData[4:6])
-        self.C = Vertex(
+        self.C = VertexTex(
             short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
             normalData[12:18],
             texcoordData[8:10])
-        self.D = Vertex(
+        self.D = VertexTex(
             short3_t.from_buffer_copy(pointData[18:24]).toTuple(),
             normalData[18:24],
             texcoordData[10:12])
@@ -2207,16 +2207,16 @@ class QuadTex(object):
 
 class QuadUntex(object):
     def from_data(self, pointData, visangle, normalData=None, texcoordData=None, unknown5=None, terrainCoordsData=None):
-        self.A = Vertex(
+        self.A = VertexUntex(
             short3_t.from_buffer_copy(pointData[0:6]).toTuple(),
         )
-        self.B = Vertex(
+        self.B = VertexUntex(
             short3_t.from_buffer_copy(pointData[6:12]).toTuple(),
         )
-        self.C = Vertex(
+        self.C = VertexUntex(
             short3_t.from_buffer_copy(pointData[12:18]).toTuple(),
         )
-        self.D = Vertex(
+        self.D = VertexUntex(
             short3_t.from_buffer_copy(pointData[18:24]).toTuple(),
         )
         self.unknown5 = unknown5
