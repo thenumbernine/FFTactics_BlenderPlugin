@@ -28,19 +28,20 @@ class Situation(MyStruct):
         # and says only 0x22, 0x30, and 0x70 are acceptable
         ('sig', c_uint16),
         
-        ('arrange', c_uint8),
+        ('arrangement', c_uint8),
         ('temp1', c_uint8, 4),
         ('weather', c_uint8, 3),
         ('isDay', c_uint8, 1),    # day vs night?
+        
         ('resourceFlag', c_uint8),  # always 1 for resources?
+        
         ('resourceType', c_uint8),
-    ]
 
-# trails Situation if it isn't a RESOURCE_EOF
-class SituationEx(MyStruct):
-    _pack_ = 1
-    _fields_ = [
-        ('unused00', c_uint16),
+        # trails Situation if it isn't a RESOURCE_EOF
+        # do I really need to break these into two separate reads?
+        # I think GaneshaDx puts a threshold of 20 bytes ... meaning we shoudl always be able to access both structs...
+        
+        ('fileSector', c_uint16),
         ('lba', c_uint32),
         ('size', c_uint32),
         ('unused0A', c_uint32),
@@ -356,16 +357,19 @@ WEATHER_3 = 0x3
 WEATHER_4 = 0x4
 DEFAULT_INDEX = (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0)
 
+# GaneshaDx: texture resources:
 RESOURCE_TEXTURE = 0x17
-RESOURCE_TYPE0 = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
-RESOURCE_TYPE1 = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
-RESOURCE_TYPE2 = 0x30 # Used with many index combos. Usually a small file.
+# GaneshaDx: mesh resources:
+RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
+RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
+RESOURCE_MESH_ALT = 0x30 # Used with many index combos. Usually a small file.
+# GaneshaDx: other stuff I guess
 RESOURCE_EOF = 0x31 # GaneshaDx calls this one "Padded"
 RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
-RESOURCE_UNKNOWN_TWIN_1 = 0x85 # from GaneshaDx
-RESOURCE_UNKNOWN_TWIN_2 = 0x86 # from GaneshaDx
-RESOURCE_UNKNOWN_TWIN_3 = 0x87 # from GaneshaDx
-RESOURCE_UNKNOWN_TWIN_4 = 0x88 # from GaneshaDx
+RESOURCE_UNKNOWN_TWIN_1 = 0x85
+RESOURCE_UNKNOWN_TWIN_2 = 0x86
+RESOURCE_UNKNOWN_TWIN_3 = 0x87
+RESOURCE_UNKNOWN_TWIN_4 = 0x88
 
 gnslines = {
         (0, 0): 'MAP000.5',
@@ -1882,7 +1886,6 @@ class QuadUntex(object):
         self.unknown = unknown
         self.visAngles = visAngles
 
-
 class Map(object):
     def __init__(self):
         self.resources = Resources()
@@ -1899,7 +1902,7 @@ class Map(object):
         # how to handle multiple situations?
         # map000 has no textures
         # map051 and map105 have two textures (how are those extra textures referenced in the map file?)
-        # map099, 116, 117, 118, 119, 120 can't find the mesh chunk? 
+        # map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
         #assert len(self.textureFilenames) == 1
         self.readTexture()
         self.resources.read(self.resourceFiles)
@@ -1917,13 +1920,12 @@ class Map(object):
             sit = readStruct(file, Situation)
             if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_EOF:
                 break
-            readStruct(file, SituationEx)    # read? skip?
             resFilePath = os.path.join(mapdir, gnslines[(mapNum, lineNo)])
-            situations[sit.toTuple()] = True
+            situations[(sit.sig, sit.arrangement, sit.weather, sit.isDay, sit.resourceType)] = True
             if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_TEXTURE:
-                self.items[(sit.sig, sit.arrange, sit.isDay, sit.weather, 'tex')] = resFilePath
+                self.items[(sit.sig, sit.arrangement, sit.isDay, sit.weather, 'tex')] = resFilePath
             else:
-                self.items[(sit.sig, sit.arrange, sit.isDay, sit.weather, 'res')] = resFilePath
+                self.items[(sit.sig, sit.arrangement, sit.isDay, sit.weather, 'res')] = resFilePath
         self.situations = sorted(situations.keys())
         file.close()
 
@@ -1937,14 +1939,13 @@ class Map(object):
         print('self.textureFilenames', self.textureFilenames)
         print('self.resourceFiles', self.resourceFiles)
 
-
     def getTextureFiles(self, sitIndex):
-        s = Situation(*self.situations[sitIndex])
+        (sig, arrangement, isDay, weather, resourceType) = self.situations[sitIndex]
         found = []
         for key in [
-            (s.sig, s.arrange, s.isDay, s.weather, 'tex'),
-            (s.sig, s.arrange, TIME_0, WEATHER_0, 'tex'),
-            (s.sig, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
+            (sig, arrangement, isDay, weather, 'tex'),
+            (sig, arrangement, TIME_0, WEATHER_0, 'tex'),
+            (sig, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
             (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
             (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
             (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
@@ -1954,12 +1955,12 @@ class Map(object):
         return found
 
     def getResourceFiles(self, sitIndex):
-        s = Situation(*self.situations[sitIndex])
+        (sig, arrangement, isDay, weather, resourceType) = self.situations[sitIndex]
         found = []
         for key in [
-            (s.sig, s.arrange, s.isDay, s.weather, 'res'),
-            (s.sig, s.arrange, TIME_0, WEATHER_0, 'res'),
-            (s.sig, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
+            (sig, arrangement, isDay, weather, 'res'),
+            (sig, arrangement, TIME_0, WEATHER_0, 'res'),
+            (sig, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
             (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
             (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
             (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
