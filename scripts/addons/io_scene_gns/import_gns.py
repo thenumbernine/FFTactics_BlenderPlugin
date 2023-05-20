@@ -16,20 +16,24 @@ from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 
 
-class MyStruct(Structure):
-    # why isn't there an eays wya to do this?
+class MyStruct(LittleEndianStructure):
+    # why isn't there an easy way to do this?
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
 
 class Situation(MyStruct):
     _pack_ = 1
     _fields_ = [
-        ('index1', c_uint16),
+        # GaneshaDx looks at only the low byte here,
+        # and says only 0x22, 0x30, and 0x70 are acceptable
+        ('sig', c_uint16),
+        
         ('arrange', c_uint8),
         ('temp1', c_uint8, 4),
         ('weather', c_uint8, 3),
-        ('time', c_uint8, 1),    # day vs night?
-        ('resourceType', c_uint16),
+        ('isDay', c_uint8, 1),    # day vs night?
+        ('resourceFlag', c_uint8),  # always 1 for resources?
+        ('resourceType', c_uint8),
     ]
 
 # trails Situation if it isn't a RESOURCE_EOF
@@ -352,11 +356,16 @@ WEATHER_3 = 0x3
 WEATHER_4 = 0x4
 DEFAULT_INDEX = (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0)
 
-RESOURCE_TEXTURE = 0x1701
-RESOURCE_TYPE0 = 0x2e01 # Always used with (0x22, 0, 0, 0). Always a big file.
-RESOURCE_TYPE1 = 0x2f01 # Always used with (0x30, 0, 0, 0). Usually a big file.
-RESOURCE_TYPE2 = 0x3001 # Used with many index combos. Usually a small file.
-RESOURCE_EOF = 0x3101
+RESOURCE_TEXTURE = 0x17
+RESOURCE_TYPE0 = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
+RESOURCE_TYPE1 = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
+RESOURCE_TYPE2 = 0x30 # Used with many index combos. Usually a small file.
+RESOURCE_EOF = 0x31 # GaneshaDx calls this one "Padded"
+RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
+RESOURCE_UNKNOWN_TWIN_1 = 0x85 # from GaneshaDx
+RESOURCE_UNKNOWN_TWIN_2 = 0x86 # from GaneshaDx
+RESOURCE_UNKNOWN_TWIN_3 = 0x87 # from GaneshaDx
+RESOURCE_UNKNOWN_TWIN_4 = 0x88 # from GaneshaDx
 
 gnslines = {
         (0, 0): 'MAP000.5',
@@ -1888,7 +1897,10 @@ class Map(object):
         # what if there's more than 1?
         # textureFilenames is set from situation ...
         # how to handle multiple situations?
-        assert len(self.textureFilenames) == 1
+        # map000 has no textures
+        # map051 and map105 have two textures (how are those extra textures referenced in the map file?)
+        # map099, 116, 117, 118, 119, 120 can't find the mesh chunk? 
+        #assert len(self.textureFilenames) == 1
         self.readTexture()
         self.resources.read(self.resourceFiles)
 
@@ -1903,15 +1915,15 @@ class Map(object):
         situations = {}
         for lineNo in range(0x7fffffff): # or infinity or whatever.  why can't python just count integers without importing from another library?
             sit = readStruct(file, Situation)
-            if sit.resourceType == RESOURCE_EOF:
+            if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_EOF:
                 break
             readStruct(file, SituationEx)    # read? skip?
             resFilePath = os.path.join(mapdir, gnslines[(mapNum, lineNo)])
             situations[sit.toTuple()] = True
-            if sit.resourceType == RESOURCE_TEXTURE:
-                self.items[(sit.index1, sit.arrange, sit.time, sit.weather, 'tex')] = resFilePath
+            if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_TEXTURE:
+                self.items[(sit.sig, sit.arrange, sit.isDay, sit.weather, 'tex')] = resFilePath
             else:
-                self.items[(sit.index1, sit.arrange, sit.time, sit.weather, 'res')] = resFilePath
+                self.items[(sit.sig, sit.arrange, sit.isDay, sit.weather, 'res')] = resFilePath
         self.situations = sorted(situations.keys())
         file.close()
 
@@ -1930,9 +1942,9 @@ class Map(object):
         s = Situation(*self.situations[sitIndex])
         found = []
         for key in [
-            (s.index1, s.arrange, s.time, s.weather, 'tex'),
-            (s.index1, s.arrange, TIME_0, WEATHER_0, 'tex'),
-            (s.index1, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
+            (s.sig, s.arrange, s.isDay, s.weather, 'tex'),
+            (s.sig, s.arrange, TIME_0, WEATHER_0, 'tex'),
+            (s.sig, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
             (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
             (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
             (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
@@ -1945,9 +1957,9 @@ class Map(object):
         s = Situation(*self.situations[sitIndex])
         found = []
         for key in [
-            (s.index1, s.arrange, s.time, s.weather, 'res'),
-            (s.index1, s.arrange, TIME_0, WEATHER_0, 'res'),
-            (s.index1, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
+            (s.sig, s.arrange, s.isDay, s.weather, 'res'),
+            (s.sig, s.arrange, TIME_0, WEATHER_0, 'res'),
+            (s.sig, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
             (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
             (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
             (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
