@@ -471,55 +471,45 @@ class Resources(object):
         untex_tri = []
         untex_quad = []
         for polygon in polygons:
-            if hasattr(polygon.source, 'D') and polygon.source.A.normal:
+            if isinstance(polygon, QuadTex):
                 tex_quad.append(polygon.source)
-            elif hasattr(polygon.source, 'D') and not polygon.source.A.normal:
+            elif isinstance(polygon, QuadUntex):
                 untex_quad.append(polygon.source)
-            elif polygon.source.A.normal:
+            elif isinstance(polygon, TriTex):
                 tex_tri.append(polygon.source)
-            else:
+            elif isinstance(polygon, QuadUntex):
                 untex_tri.append(polygon.source)
+            else:
+                raise "PYTHON SUCKS"
         polygons_data = pack('<4H', *[len(x) for x in [tex_tri, tex_quad, untex_tri, untex_quad]])
-        for polygon in tex_tri:
-            for abc in ['A', 'B', 'C']:
-                polygons_data += pack('<3h', *getattr(polygon, abc).point)
-        for polygon in tex_quad:
-            for abc in ['A', 'B', 'C', 'D']:
-                polygons_data += pack('<3h', *getattr(polygon, abc).point)
-        for polygon in untex_tri:
-            for abc in ['A', 'B', 'C']:
-                polygons_data += pack('<3h', *getattr(polygon, abc).point)
-        for polygon in untex_quad:
-            for abc in ['A', 'B', 'C', 'D']:
-                polygons_data += pack('<3h', *getattr(polygon, abc).point)
-        for polygon in tex_tri:
-            for abc in ['A', 'B', 'C']:
-                polygons_data += pack('<3h', *[int(x * 4096.) for x in getattr(polygon, abc).normal])
-        for polygon in tex_quad:
-            for abc in ['A', 'B', 'C', 'D']:
-                polygons_data += pack('<3h', *[int(x * 4096.) for x in getattr(polygon, abc).normal])
+        for polygon in polygons:
+            for v in polygon.vtxs:
+                polygons_data += pack('<3h', *v.point)
+        for polygon in tex_tri + tex_quad:
+            for v in polygon.vtxs:
+                polygons_data += pack('<3h', *[int(x * 4096.) for x in v.normal])
         for polygon in tex_tri:
             if polygon.unknown3 == 0:
                 polygon.unknown3 = 120
                 polygon.unknown6_2 = 3
             polygons_data += (''
-                + pack('BB', *polygon.A.texcoord)
+                + pack('BB', *polygon.vtxs[0].texcoord)
                 + pack('BB', *[(polygon.unknown2_4 << 4) | polygon.paletteIndex, polygon.unknown3])
-                + pack('BB', *polygon.B.texcoord)
+                + pack('BB', *polygon.vtxs[1].texcoord)
                 + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texturePage, polygon.unknown7])
-                + pack('BB', *polygon.C.texcoord)
+                + pack('BB', *polygon.vtxs[2].texcoord)
             )
         for polygon in tex_quad:
             if polygon.unknown3 == 0:
                 polygon.unknown3 = 120
                 polygon.unknown6_2 = 3
             polygons_data += (''
-                + pack('BB', *polygon.A.texcoord)
+                + pack('BB', *polygon.vtxs[0].texcoord)
                 + pack('BB', *[(polygon.unknown2_4 << 4) + polygon.paletteIndex, polygon.unknown3])
-                + pack('BB', *polygon.B.texcoord)
+                + pack('BB', *polygon.vtxs[1].texcoord)
                 + pack('BB', *[(polygon.unknown6_2 << 2) + polygon.texturePage, polygon.unknown7])
-                + pack('BB', *polygon.C.texcoord)
-                + pack('BB', *polygon.D.texcoord)
+                + pack('BB', *polygon.vtxs[2].texcoord)
+                + pack('BB', *polygon.vtxs[3].texcoord)
             )
         for polygon in untex_tri:
             polygons_data += polygon.unknown5
@@ -588,14 +578,16 @@ class Resources(object):
         untex_tri = []
         untex_quad = []
         for polygon in polygons:
-            if hasattr(polygon.source, 'D') and polygon.source.A.normal:
+            if isinstance(polygon, QuadTex):
                 tex_quad.append(polygon.source)
-            elif hasattr(polygon.source, 'D') and not polygon.source.A.normal:
+            elif isinstance(polygon, QuadUntex):
                 untex_quad.append(polygon.source)
-            elif polygon.source.A.normal:
+            elif isinstance(polygon, TriTex):
                 tex_tri.append(polygon.source)
-            else:
+            elif isinstance(polygon, QuadUntex):
                 untex_tri.append(polygon.source)
+            else:
+                raise "PYTHON SUCKS"
         tex_tri_data = ''
         tex_quad_data = ''
         untex_tri_data = ''
@@ -2109,11 +2101,13 @@ class VertexTex(object):
         self.normal = normal.toTuple()
         self.texcoord = texcoord.toTuple()
 
-class TriangleTex(object):
+class TriTex(object):
     def fromData(self, points, normals, texFace, tilePos, visAngles):
-        self.A = VertexTex(points[0], normals[0], texFace.uv0)
-        self.B = VertexTex(points[1], normals[1], texFace.uv1)
-        self.C = VertexTex(points[2], normals[2], texFace.uv2)
+        self.vtxs = [
+            VertexTex(points[0], normals[0], texFace.uv0),
+            VertexTex(points[1], normals[1], texFace.uv1),
+            VertexTex(points[2], normals[2], texFace.uv2),
+        ]
         self.paletteIndex = texFace.pal
         self.texturePage = texFace.page
         self.unknown2_4 = texFace.unk2_4
@@ -2123,17 +2117,15 @@ class TriangleTex(object):
         self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)
         self.visAngles = visAngles
         return self
-    
-    def vertices(self):
-        for index in 'ABC':
-            yield getattr(self, index)
-
+   
 class QuadTex(object):
     def fromData(self, points, normals, texFace, tilePos, visAngles):
-        self.A = VertexTex(points[0], normals[0], texFace.uv0)
-        self.B = VertexTex(points[1], normals[1], texFace.uv1)
-        self.C = VertexTex(points[2], normals[2], texFace.uv2)
-        self.D = VertexTex(points[3], normals[3], texFace.uv3)
+        self.vtxs = [
+            VertexTex(points[0], normals[0], texFace.uv0),
+            VertexTex(points[1], normals[1], texFace.uv1),
+            VertexTex(points[2], normals[2], texFace.uv2),
+            VertexTex(points[3], normals[3], texFace.uv3),
+        ]
         self.paletteIndex = texFace.pal
         self.texturePage = texFace.page
         self.unknown2_4 = texFace.unk2_4
@@ -2144,43 +2136,33 @@ class QuadTex(object):
         self.visAngles = visAngles
         return self
 
-    def vertices(self):
-        for index in 'ABCD':
-            yield getattr(self, index)
-
-
-
 
 class VertexUntex(object):
     def __init__(self, point):
         self.point = point.toTuple()
 
-class TriangleUntex(object):
+class TriUntex(object):
     def fromData(self, points, unknown, visAngles):
-        self.A = VertexUntex(points[0])
-        self.B = VertexUntex(points[1])
-        self.C = VertexUntex(points[2])
+        self.vtxs = [
+            VertexUntex(points[0]),
+            VertexUntex(points[1]),
+            VertexUntex(points[2]),
+        ]
         self.unknown = unknown
         self.visAngles = visAngles
         return self
-    
-    def vertices(self):
-        for index in 'ABC':
-            yield getattr(self, index)
-
+   
 class QuadUntex(object):
     def fromData(self, points, unknown, visAngles):
-        self.A = VertexUntex(points[0])
-        self.B = VertexUntex(points[1])
-        self.C = VertexUntex(points[2])
-        self.D = VertexUntex(points[3])
+        self.vtxs = [
+            VertexUntex(points[0]),
+            VertexUntex(points[1]),
+            VertexUntex(points[2]),
+            VertexUntex(points[3]),
+        ]
         self.unknown = unknown
         self.visAngles = visAngles
         return self
-
-    def vertices(self):
-        for index in 'ABCD':
-            yield getattr(self, index)
 
 
 '''
@@ -2407,7 +2389,7 @@ class Map(object):
 
         triTexs = []
         for i in range(hdr.numTriTex):
-            triTexs.append(TriangleTex().fromData(
+            triTexs.append(TriTex().fromData(
                 triTexVtxs[3*i:3*(i+1)],
                 triTexNormals[3*i:3*(i+1)],
                 triTexFaces[i],
@@ -2427,7 +2409,7 @@ class Map(object):
 
         triUntexs = []
         for i in range(hdr.numTriUntex):
-            triUntexs.append(TriangleUntex().fromData(
+            triUntexs.append(TriUntex().fromData(
                 triUntexVtxs[3*i:3*(i+1)],
                 triUntexUnknowns[i],
                 0   # TODO visangle
@@ -2452,7 +2434,7 @@ class Map(object):
         terrainData = self.resources.get_tex_3gon_terrain_coords(hdr, data)
         visangles = self.resources.get_tex_3gon_vis()
         for pointData, visangle, normalData, texcoordData, terrainCoordsData in zip(pointData, visangles, normalData, tcData, terrainData):
-            polygon = TriangleTex().fromData(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
+            polygon = TriTex().fromData(pointData, visangle, normalData, texcoordData, terrainCoordsData=terrainCoordsData)
             yield polygon
 
     # check.
@@ -2472,7 +2454,7 @@ class Map(object):
         unknowns = self.resources.get_untex_3gon_unknown(hdr, data)
         visangles = self.resources.get_untex_3gon_vis()
         for pointData, visangle, unknown in zip(points, visangles, unknowns):
-            polygon = TriangleUntex().fromData(pointData, visangle, unknown5=unknown)
+            polygon = TriUntex().fromData(pointData, visangle, unknown5=unknown)
             yield polygon
 
     # check.
@@ -2522,12 +2504,6 @@ class Map(object):
 
     def put_visible_angles(self, polygons):
         self.resources.put_visible_angles(polygons)
-
-    # TODO make this a method of the poly
-    def vertexesForPoly(self, poly):
-        if hasattr(poly, 'D'):
-            return [poly.A, poly.C, poly.D, poly.B]        # cw => ccw and tristrip -> quad
-        return [poly.A, poly.C, poly.B]                    # cw front-face => ccw front-face
 
 ################################ import_gns ################################
 
@@ -2665,10 +2641,15 @@ def load(context,
         for material in materials:
             mesh.materials.append(material)
 
+        def vertexesForPoly(poly):
+            if len(poly.vtxs) == 4:
+                return [poly.vtxs[0], poly.vtxs[1], poly.vtxs[3], poly.vtxs[2]]        # cw => ccw and tristrip -> quad
+            return [poly.vtxs[0], poly.vtxs[1], poly.vtxs[2]]                    # cw front-face => ccw front-face
+
         vi = 0
         vti = 0
         for s in map.polygons:
-            V = map.vertexesForPoly(s)
+            V = vertexesForPoly(s)
             n = len(V)
             for v in V:
                 vtxHasTexCoord = hasattr(v, 'normal')
