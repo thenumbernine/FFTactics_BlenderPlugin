@@ -80,47 +80,47 @@ class Normal(MyStruct):
             self.z / 4096.,
         )
 
-# aka texcoord...
-class ubyte2_t(MyStruct):
+class TexCoord(MyStruct):
     _pack_ = 1
     _fields_ = [
         ('x', c_uint8),
         ('y', c_uint8),
     ]
+assert sizeof(TexCoord) == 2
 
 # textured-triangle face information
 class TriTexFace(MyStruct):
     _pack_ = 1
     _fields_ = [
-        ('uv0', ubyte2_t),
+        ('uv0', TexCoord),
         ('pal', c_uint8, 4),
         ('unk2_4', c_uint8, 4),
         ('unk3', c_uint8),
-        ('uv1', ubyte2_t),
+        ('uv1', TexCoord),
         ('page', c_uint8, 2),
         ('unk6_2', c_uint8, 6),
         ('unk7', c_uint8),
-        ('uv2', ubyte2_t),
+        ('uv2', TexCoord),
     ]
-assert(sizeof(TriTexFace) == 10)
+assert sizeof(TriTexFace) == 10
 
 # textured-quad face information
 # matches TriTexFace
 class QuadTexFace(MyStruct):
     _pack_ = 1
     _fields_ = [
-        ('uv0', ubyte2_t),
+        ('uv0', TexCoord),
         ('pal', c_uint8, 4),
         ('unk2_4', c_uint8, 4),
         ('unk3', c_uint8),
-        ('uv1', ubyte2_t),
+        ('uv1', TexCoord),
         ('page', c_uint8, 2),
         ('unk6_2', c_uint8, 6),
         ('unk7', c_uint8),
-        ('uv2', ubyte2_t),
-        ('uv3', ubyte2_t),
+        ('uv2', TexCoord),
+        ('uv3', TexCoord),
     ]
-assert(sizeof(QuadTexFace) == 12)
+assert sizeof(QuadTexFace) == 12
 
 # tile in-game position, stored per-textured-face
 class TilePos(MyStruct):
@@ -130,7 +130,7 @@ class TilePos(MyStruct):
         ('y', c_uint8, 1),
         ('z', c_uint8, 7),
     ]
-assert(sizeof(TilePos) == 2)
+assert sizeof(TilePos) == 2
 
 class RGBA5551(MyStruct):
     _pack_ = 1
@@ -140,7 +140,7 @@ class RGBA5551(MyStruct):
         ('b', c_uint16, 5),
         ('a', c_uint16, 1)
     ]
-   
+
     # TODO need some generic conversion method names?
     # deser / ser?  fromPy / toPy ?
     def toTuple(self):
@@ -224,7 +224,7 @@ class TerrainTile(MyStruct):
         ('cantCursor', c_uint8, 1),
         ('cantWalk', c_uint8, 1),
         ('unk6_2', c_uint8, 6),
-        
+
         # bits vs rotation flags:
         # 0 = ne bottom
         # 1 = se bottom
@@ -236,7 +236,7 @@ class TerrainTile(MyStruct):
         # 7 = nw top
         ('rotFlags', c_uint8),
     ]
-assert(sizeof(TerrainTile) == 8)
+assert sizeof(TerrainTile) == 8
 
 def readStruct(file, struct):
     return struct.from_buffer_copy(file.read(sizeof(struct)))
@@ -351,124 +351,6 @@ class Resources(object):
             if chunk and chunk.file_path not in written:
                 chunk.write()
                 written.append(chunk.file_path)
-
-    # TODO this is now written as if 'self' is the Map class ... gotta fix that
-    def put_polygons(self, polygons, toc_offset=0x40):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 0
-        polygons_data = pack('<4H', *[len(x) for x in [self.triTexs, self.quadTexs, self.triUntexs, self.quadUntexs]])
-        for polygon in polygons:
-            for v in polygon.vtxs:
-                polygons_data += pack('<3h', *v.pos)
-        for polygon in self.triTexs + self.quadTexs:
-            for v in polygon.vtxs:
-                polygons_data += pack('<3h', *[int(x * 4096.) for x in v.normal])
-        for polygon in self.triTexs:
-            if polygon.unknown3 == 0:
-                polygon.unknown3 = 120
-                polygon.unknown6_2 = 3
-            polygons_data += (''
-                + pack('BB', *polygon.vtxs[0].texcoord)
-                + pack('BB', *[(polygon.unknown2_4 << 4) | polygon.paletteIndex, polygon.unknown3])
-                + pack('BB', *polygon.vtxs[1].texcoord)
-                + pack('BB', *[(polygon.unknown6_2 << 2) | polygon.texturePage, polygon.unknown7])
-                + pack('BB', *polygon.vtxs[2].texcoord)
-            )
-        for polygon in self.quadTexs:
-            if polygon.unknown3 == 0:
-                polygon.unknown3 = 120
-                polygon.unknown6_2 = 3
-            polygons_data += (''
-                + pack('BB', *polygon.vtxs[0].texcoord)
-                + pack('BB', *[(polygon.unknown2_4 << 4) + polygon.paletteIndex, polygon.unknown3])
-                + pack('BB', *polygon.vtxs[1].texcoord)
-                + pack('BB', *[(polygon.unknown6_2 << 2) + polygon.texturePage, polygon.unknown7])
-                + pack('BB', *polygon.vtxs[2].texcoord)
-                + pack('BB', *polygon.vtxs[3].texcoord)
-            )
-        for polygon in self.triUntexs:
-            polygons_data += polygon.unknown5
-        for polygon in self.quadUntexs:
-            polygons_data += polygon.unknown5
-        for polygon in self.triTexs:
-            val1 = (polygon.terrainCoords[1] << 1) + polygon.terrainCoords[2]
-            polygons_data += pack('BB', val1, polygon.terrainCoords[0])
-        for polygon in self.quadTexs:
-            val1 = (polygon.terrainCoords[1] << 1) + polygon.terrainCoords[2]
-            polygons_data += pack('BB', val1, polygon.terrainCoords[0])
-        resource.chunks[toc_offset >> 2] = polygons_data
-
-    def put_palettes(self, palettes, toc_offset=0x44):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 0
-        palette_data = ''
-        for palette in palettes:
-            for c in range(16):
-                (r, g, b, a) = palette[c]
-                value = a << 15
-                value |= b << 10
-                value |= g << 5
-                value |= r << 0
-                palette_data += pack('<H', value)
-        resource.chunks[toc_offset >> 2] = palette_data
-
-    def put_dir_lights(self, dir_lights, toc_offset=0x64):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 0
-        light_data = ''
-        for color in range(3):
-            for light in dir_lights:
-                light_data += pack('<h', light.color[color])
-        for light in dir_lights:
-            for dim in range(3):
-                light_data += pack('<h', int(4096.0 * light.direction.coords[dim]))
-        resource.chunks[toc_offset >> 2] = data[:offset] + light_data + data[offset + 36:]
-
-    def put_amb_light_rgb(self, light_data, toc_offset=0x64):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 36
-        resource.chunks[toc_offset >> 2] = data[:offset] + light_data + data[offset + 3:]
-
-    def put_background(self, background_data, toc_offset=0x64):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 39
-        resource.chunks[toc_offset >> 2] = data[:offset] + background_data + data[offset + 6:]
-
-    def put_terrain(self, terrainData, toc_offset=0x68):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 0
-        resource.chunks[toc_offset >> 2] = data[:offset] + terrainData + data[offset + len(terrainData):]
-
-    def put_visible_angles(self, polygons, toc_offset=0xb0):
-        resource = self.chunks[toc_offset >> 2]
-        data = resource.chunks[toc_offset >> 2]
-        offset = 0x380
-        tex_tri_data = ''
-        tex_quad_data = ''
-        untex_tri_data = ''
-        untex_quad_data = ''
-        for polygon in self.triTexs:
-            tex_tri_data += pack('<H', polygon.visAngles)
-        tex_tri_data += '\x00' * (1024 - len(tex_tri_data))
-        for polygon in self.quadTexs:
-            tex_quad_data += pack('<H', polygon.visAngles)
-        tex_quad_data += '\x00' * (1536 - len(tex_quad_data))
-        for polygon in self.triUntexs:
-            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visAngles) ])
-            untex_tri_data += pack('<H', vis)
-        untex_tri_data += '\x00' * (128 - len(untex_tri_data))
-        for polygon in self.quadUntexs:
-            vis = sum([ x << (15-i) for i, x in enumerate(polygon.visAngles) ])
-            untex_quad_data += pack('<H', vis)
-        untex_quad_data += '\x00' * (512 - len(untex_quad_data))
-        visible_angles_data = tex_tri_data + tex_quad_data + untex_tri_data + untex_quad_data
-        resource.chunks[toc_offset >> 2] = data[:offset] + visible_angles_data + data[offset + len(visible_angles_data):]
 
 ################################ fft/map/gns.py ################################
 
@@ -1969,15 +1851,10 @@ class TriTex(object):
             VertexTex(points[1], normals[1], texFace.uv1),
             VertexTex(points[2], normals[2], texFace.uv2),
         ]
-        self.paletteIndex = texFace.pal
-        self.texturePage = texFace.page
-        self.unknown2_4 = texFace.unk2_4
-        self.unknown3 = texFace.unk3
-        self.unknown6_2 = texFace.unk6_2
-        self.unknown7 = texFace.unk7
-        self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)
+        self.texFace = texFace
+        self.tilePos = tilePos
         self.visAngles = visAngles
-   
+
 class QuadTex(object):
     def __init__(self, points, normals, texFace, tilePos, visAngles):
         self.vtxs = [
@@ -1986,13 +1863,8 @@ class QuadTex(object):
             VertexTex(points[2], normals[2], texFace.uv2),
             VertexTex(points[3], normals[3], texFace.uv3),
         ]
-        self.paletteIndex = texFace.pal
-        self.texturePage = texFace.page
-        self.unknown2_4 = texFace.unk2_4
-        self.unknown3 = texFace.unk3
-        self.unknown6_2 = texFace.unk6_2
-        self.unknown7 = texFace.unk7
-        self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)        
+        self.texFace = texFace
+        self.tilePos = tilePos
         self.visAngles = visAngles
 
 
@@ -2009,7 +1881,7 @@ class TriUntex(object):
         ]
         self.unknown = unknown
         self.visAngles = visAngles
-   
+
 class QuadUntex(object):
     def __init__(self, points, unknown, visAngles):
         self.vtxs = [
@@ -2033,10 +1905,10 @@ class Map(object):
     def read(self, gnspath):
         self.readGNS(gnspath)
         self.setSituation(0)
-        
+
         self.texture.read(self.textureFiles)
         self.resources.read(self.resourceFiles)
-        
+
         self.readFromChunks()
 
         # expand the 8-bits into separate 4-bits into an image double array
@@ -2052,7 +1924,7 @@ class Map(object):
                 dstrow.append(pix1)
                 dstrow.append(pix2)
             self.textureIndexedData.append(dstrow)
-        
+
         return self
 
     def readGNS(self, file_path):
@@ -2118,13 +1990,13 @@ class Map(object):
     def readFromChunks(self):
         data = None
         ofs = 0
-        
+
         def read(cl):
             nonlocal ofs
             res = cl.from_buffer_copy(data[ofs:ofs+sizeof(cl)])
             ofs += sizeof(cl)
             return res
-        
+
         # reading from chunk 0x10
         data = self.resources.chunks[0x10].chunks[0x10]
         ofs = 0
@@ -2146,22 +2018,21 @@ class Map(object):
         # reading chunk 0x2c
         data = self.resources.chunks[0x2c].chunks[0x2c]  # ...
         ofs = 0x380
-        # from the 'put_visible_angles' function looks like this is written to a 1024 byte block always
+        # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
         triTexVisAngles = read(c_uint16 * 512)
         # ... and this is a 1536 byte block always
         quadTexVisAngles = read(c_uint16 * 768)
-        # ... and yup 
+        # ... and yup
         triUntexVisAngles = read(c_uint16 * 64)
         # ... yup
         quadUntexVisAngles = read(c_uint16 * 256)
         # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
-        # GaneshaDx has these constants: 
-        MaxTexturedTriangles = 360
-        MaxTexturedQuads = 710
-        MaxUntexturedTriangles = 64
-        MaxUntexturedQuads = 256
+        # GaneshaDx has these constants:
+        #MaxTexturedTriangles = 360
+        #MaxTexturedQuads = 710
+        #MaxUntexturedTriangles = 64
+        #MaxUntexturedQuads = 256
         # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
-
         # done reading chunk 0x2c
 
         # reading chunk 0x11
@@ -2209,6 +2080,7 @@ class Map(object):
                 level.append(row)
             self.terrainTiles.append(level)
 
+        # now for aux calcs
 
         bboxMin = [math.inf] * 3
         bboxMax = [-math.inf] * 3
@@ -2260,46 +2132,122 @@ class Map(object):
                 quadUntexVisAngles[i]
             ))
 
-    def polygons(self):
-        return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
-
     def write(self):
+        self.writePolygons()
+        self.writeVisAngles()
+        self.writeColorPalettes()
+        self.writeDirLights()
+        self.writeTerrain()
+
         #self.texture.write()
         self.resources.write()
 
-    def put_texture(self, texture):
-        texture_data = ''
+    def writePolygons(self):
+        data = bytes(self.meshHdr)
+        for polygon in self.polygons():
+            for v in polygon.vtxs:
+                data += bytes(v.pos)
+        for polygon in self.triTexs + self.quadTexs:
+            for v in polygon.vtxs:
+                data += bytes(v.normal)
+        for polygon in self.triTexs + self.quadTexs:
+            if polygon.texFace.unk3 == 0:
+                polygon.texFace.unk3 = 120
+                polygon.texFace.unk6_2 = 3
+            data += bytes(polygon.texFace)
+        for polygon in self.triUntexs + self.quadUntexs:
+            data += bytes(polygon.unknown)
+        for polygon in self.triTexs + self.quadTexs:
+            data += bytes(polygon.tilePos)
+        self.chunks[0x10].chunks[0x10] = data
+
+    def writeVisAngles(self):
+        triTexVisAngles = ''
+        for polygon in self.triTexs:
+            triTexVisAngles += bytes(polygon.visAngles)
+        triTexVisAngles += '\x00' * (1024 - len(triTexVisAngles))
+
+        quadTexVisAngles = ''
+        for polygon in self.quadTexs:
+            quadTexVisAngles += bytes(polygon.visAngles)
+        quadTexVisAngles += '\x00' * (1536 - len(quadTexVisAngles))
+
+        triUntexVisAngles = ''
+        for polygon in self.triUntexs:
+            triUntexVisAngles += bytes(polygon.visAngles)
+        triUntexVisAngles += '\x00' * (128 - len(triUntexVisAngles))
+
+        quadUntexVisAngles = ''
+        for polygon in self.quadUntexs:
+            quadUntexVisAngles += bytes(polygon.visAngles)
+        quadUntexVisAngles += '\x00' * (512 - len(quadUntexVisAngles))
+
+        ofs = 0x380
+        olddata = self.chunks[0x2c].chunks[0x2c]
+        self.chunks[0x2c].chunks[0x2c] = (
+              olddata[:ofs]
+            + triTexVisAngles
+            + quadTexVisAngles
+            + triUntexVisAngles
+            + quadUntexVisAngles
+            + olddata[ofs + len(data):]
+        )
+
+    def writeColorPalettes(self):
+        data = ''
+        for palette in self.colorPals:
+            data += bytes(palette)
+        self.chunks[0x11].chunks[0x11] = data
+
+    # writeGrayPalettes too?  or nah?
+
+    def writeDirLights(self):
+        data = (
+              bytes(self.dirLightColors)
+            + bytes(self.dirLightDirs)
+            + bytes(self.ambientLightColors)
+            + bytes(self.backgroundColors)
+        )
+
+        ofs = 0
+        olddata = self.chunks[0x19].chunks[0x19]
+        self.chunks[0x19].chunks[0x19] = (
+            olddata[:ofs]
+            + data
+            + olddata[ofs + len(data):]
+        )
+
+    def writeTerrain(self, terrain):
+        self.terrainSize[0] = len(terrain.tiles[0][0])
+        self.terrainSize[1] = len(terrain.tiles[0])
+        data = bytes(self.terrainSize)
+        for level in self.terrainTiles:
+            for row in level:
+                for tile in row:
+                    data += bytes(tile)
+            # Skip to second level of terrain data
+            data += '\x00' * (sizeof(TerrainTile) * (256 - sizeX * sizeZ))
+        ofs = 0
+        olddata = self.chunks[0x1a].chunks[0x1a]
+        self.chunks[0x1a].chunks[0x1a] = (
+            olddata[:ofs]
+            + data
+            + olddata[ofs + len(data):]
+        )
+
+    def writeTexture(self, texture):
+        data = ''
         for y in range(1024):
             for x in range(128):
                 pix1 = texture[y][x*2]
                 pix2 = texture[y][x*2 + 1]
                 pair = pack('B', (pix1 << 0) | (pix2 << 4))
-                texture_data += pair
-        self.texture.write(texture_data)
+                data += pair
+        self.texture.write(data)
 
-    def put_terrain(self, terrain):
-        max_x = len(terrain.tiles[0][0])
-        max_z = len(terrain.tiles[0])
-        terrainData = pack('BB', max_x, max_z)
-        for level in terrain.tiles:
-            for row in level:
-                for tile in row:
-                    terrainData += (''
-                        + pack('B', (tile.unknown0_6 << 6) | tile.surfaceType)
-                        + pack('B', tile.unknown1)
-                        + pack('B', tile.halfHeight)
-                        + pack('B', (tile.depth << 5) | tile.slopeHeight)
-                        + pack('B', tile.slopeType)
-                        + pack('B', tile.unknown5)
-                        + pack('B', (tile.unknown6_2 << 2) | (tile.cantWalk << 1) | tile.cantCursor)
-                        + pack('B', tile.rotFlags)
-                    )
-            # Skip to second level of terrain data
-            terrainData += '\x00' * (8 * 256 - 8 * max_x * max_z)
-        self.resources.put_terrain(terrainData)
+    def polygons(self):
+        return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
 
-    def put_visible_angles(self, polygons):
-        self.resources.put_visible_angles(polygons)
 
 ################################ import_gns ################################
 
@@ -2453,8 +2401,8 @@ def load(context,
 
                 if isTexd:
                     meshVtxTCs.append((
-                        v.texcoord.x / 256.,
-                        (s.texturePage + v.texcoord.y / 256.) / 4.
+                        (v.texcoord.x + .5) / 256.,
+                        (256 * s.texFace.page + v.texcoord.y + .5) / 1024.
                     ))
                     meshVtxNormals.append(v.normal.toTuple())
                 else:
@@ -2475,7 +2423,7 @@ def load(context,
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    matTexNamePerPal[s.paletteIndex] if isTexd else matWOTexName
+                    matTexNamePerPal[s.texFace.pal] if isTexd else matWOTexName
                 ))
             vi+=n
             #if isTexd:
