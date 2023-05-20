@@ -16,7 +16,6 @@ from bpy_extras.wm_utils.progress_report import ProgressReport
 import os, sys, struct
 import os.path
 from os.path import getsize
-from struct import pack, unpack
 from datetime import datetime
 
 from ctypes import *
@@ -238,6 +237,15 @@ class TerrainTile(MyStruct):
     ]
 assert sizeof(TerrainTile) == 8
 
+# can python ctypes do arrays-of-bitfields?
+# ... can C structs? nope?
+class TwoNibbles(MyStruct):
+    _pack_ = 1
+    _fields_ = [
+        ('lo', c_uint8, 4),
+        ('hi', c_uint8, 4),
+    ]
+
 def readStruct(file, struct):
     return struct.from_buffer_copy(file.read(sizeof(struct)))
 
@@ -245,22 +253,23 @@ def readStruct(file, struct):
 
 class Texture_File(object):
     def __init__(self):
-        self.file_path = None
+        self.filepath = None
         self.file = None
         self.data = None
 
     def read(self, files):
-        for file_path in files:
-            self.file_path = file_path
-            self.file = open(self.file_path, 'rb')
+        # wait, what if there's two files?
+        # the old obj properties just get overwritten?
+        for filepath in files:
+            self.filepath = filepath
+            self.file = open(self.filepath, 'rb')
             self.data = self.file.read()
+            self.data = (TwoNibbles * len(self.data)).from_buffer_copy(self.data)
+            self.file.close()
             break
-        print('tex', self.file_path)
-        self.file.close()
 
     def write(self, data):
-        self.file = open(self.file_path, 'wb')
-        print('Writing', self.file_path)
+        self.file = open(self.filepath, 'wb')
         self.file.write(data)
         self.file.close()
 
@@ -271,48 +280,47 @@ class Texture_File(object):
 class Resource(object):
     def __init__(self):
         super(Resource, self).__init__()
-        self.file_path = None
+        self.filepath = None
         self.file = None
         self.chunks = [''] * 49
         self.size = None
 
     # check.
-    def read(self, file_path):
-        self.file_path = file_path
-        self.size = getsize(self.file_path)
-        self.file = open(self.file_path, 'rb')
-        toc = list(unpack('<49I', self.file.read(0xc4)))
+    def read(self, filepath):
+        self.filepath = filepath
+        self.size = getsize(self.filepath)
+        self.file = open(self.filepath, 'rb')
+        self.toc = readStruct(self.file, c_uint32 * 49)
         self.file.seek(0)
         data = self.file.read()
         self.file.close()
-        toc.append(self.size)
-        for i, entry in enumerate(toc[:-1]):
-            begin = toc[i]
+        for i, entry in enumerate(self.toc):
+            begin = self.toc[i]
             if begin == 0:
-                print(file_path, i, 'resource offset is zero ... skipping')
+                print(filepath, i, 'resource offset is zero ... skipping')
                 continue
             end = None
-            for j in range(i + 1, len(toc)):
-                if toc[j]:
-                    end = toc[j]
+            for j in range(i + 1, len(self.toc)):
+                if self.toc[j]:
+                    end = self.toc[j]
                     break
+            if end == None:
+                end = self.size
             self.chunks[i] = data[begin:end]
-            print(i, self.file_path, begin, end)
-        self.toc = toc
+            print(i, self.filepath, begin, end)
 
     def write(self):
-        offset = 0xc4
-        toc = []
-        for chunk in self.chunks:
+        offset = sizeof(self.toc)
+        for (i, chunk) in enumerate(self.chunks):
             if chunk:
-                toc.append(offset)
+                self.toc[i] = offset
                 offset += len(chunk)
             else:
-                toc.append(0)
-        data = pack('<49I', *toc)
+                self.toc[i] = 0
+        data = bytes(self.toc)
         for chunk in self.chunks:
             data += chunk
-        print('Writing', self.file_path)
+        print('Writing', self.filepath)
         dateTime = datetime.now()
         print(dateTime)
         old_size = self.size
@@ -324,7 +332,7 @@ class Resource(object):
             print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
         elif new_sectors < old_sectors:
             print('Note: File has shrunk from %u sectors to %u sectors.' % (old_sectors, new_sectors))
-        self.file = open(self.file_path, 'wb')
+        self.file = open(self.filepath, 'wb')
         self.file.write(data)
         self.file.close()
 
@@ -335,22 +343,22 @@ class Resources(object):
         self.chunks = [None] * 49
 
     def read(self, files):
-        for file_path in files:
+        for filepath in files:
             resource = Resource()
-            resource.read(file_path)
+            resource.read(filepath)
             for i in range(49):
                 if self.chunks[i] is not None:
                     continue
                 if resource.chunks[i]:
-                    print('setting chunk', i, 'to', file_path)
+                    print('setting chunk', i, 'to', filepath)
                     self.chunks[i] = resource
 
     def write(self):
         written = []
         for chunk in self.chunks:
-            if chunk and chunk.file_path not in written:
+            if chunk and chunk.filepath not in written:
                 chunk.write()
-                written.append(chunk.file_path)
+                written.append(chunk.filepath)
 
 ################################ fft/map/gns.py ################################
 
@@ -1906,6 +1914,7 @@ class Map(object):
         self.readGNS(gnspath)
         self.setSituation(0)
 
+        # what if there's more than 1?
         self.texture.read(self.textureFiles)
         self.resources.read(self.resourceFiles)
 
@@ -1917,20 +1926,17 @@ class Map(object):
         for y in range(1024):
             dstrow = []
             for x in range(128):
-                i = x + y * 128
-                pair = unpack('B', self.texture.data[i:i+1])[0]
-                pix1 = (pair >> 0) & 0xf
-                pix2 = (pair >> 4) & 0xf
-                dstrow.append(pix1)
-                dstrow.append(pix2)
+                pair = self.texture.data[x + y * 128]
+                dstrow.append(pair.lo)
+                dstrow.append(pair.hi)
             self.textureIndexedData.append(dstrow)
 
         return self
 
-    def readGNS(self, file_path):
-        mapNum = int(file_path[-7:-4])
-        file = open(file_path, 'rb')
-        mapdir = os.path.dirname(file_path)
+    def readGNS(self, filepath):
+        mapNum = int(filepath[-7:-4])
+        file = open(filepath, 'rb')
+        mapdir = os.path.dirname(filepath)
         situations = {}
         for lineNo in range(0x7fffffff): # or infinity or whatever.  why can't python just count integers without importing from another library?
             sit = readStruct(file, Situation)
@@ -2239,10 +2245,9 @@ class Map(object):
         data = ''
         for y in range(1024):
             for x in range(128):
-                pix1 = texture[y][x*2]
-                pix2 = texture[y][x*2 + 1]
-                pair = pack('B', (pix1 << 0) | (pix2 << 4))
-                data += pair
+                lo = texture[y][x*2]
+                hi = texture[y][x*2 + 1]
+                data += bytes(TwoNibbles(lo, hi))
         self.texture.write(data)
 
     def polygons(self):
