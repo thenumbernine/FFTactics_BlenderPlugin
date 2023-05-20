@@ -334,7 +334,6 @@ class Resources(object):
         super(Resources, self).__init__()
         self.chunks = [None] * 49
 
-    # check.
     def read(self, files):
         for file_path in files:
             resource = Resource()
@@ -345,12 +344,6 @@ class Resources(object):
                 if resource.chunks[i]:
                     print('setting chunk', i, 'to', file_path)
                     self.chunks[i] = resource
-
-    def get_terrain(self):
-        resource = self.chunks[0x1a]
-        data = resource.chunks[0x1a]
-        offset = 0
-        return data
 
     def write(self):
         written = []
@@ -1970,7 +1963,7 @@ class VertexTex(object):
         self.texcoord = texcoord.toTuple()
 
 class TriTex(object):
-    def fromData(self, points, normals, texFace, tilePos, visAngles):
+    def __init__(self, points, normals, texFace, tilePos, visAngles):
         self.vtxs = [
             VertexTex(points[0], normals[0], texFace.uv0),
             VertexTex(points[1], normals[1], texFace.uv1),
@@ -1984,10 +1977,9 @@ class TriTex(object):
         self.unknown7 = texFace.unk7
         self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)
         self.visAngles = visAngles
-        return self
    
 class QuadTex(object):
-    def fromData(self, points, normals, texFace, tilePos, visAngles):
+    def __init__(self, points, normals, texFace, tilePos, visAngles):
         self.vtxs = [
             VertexTex(points[0], normals[0], texFace.uv0),
             VertexTex(points[1], normals[1], texFace.uv1),
@@ -2002,7 +1994,6 @@ class QuadTex(object):
         self.unknown7 = texFace.unk7
         self.terrainCoords = (tilePos.x, tilePos.z, tilePos.y)        
         self.visAngles = visAngles
-        return self
 
 
 class VertexUntex(object):
@@ -2010,7 +2001,7 @@ class VertexUntex(object):
         self.point = point.toTuple()
 
 class TriUntex(object):
-    def fromData(self, points, unknown, visAngles):
+    def __init__(self, points, unknown, visAngles):
         self.vtxs = [
             VertexUntex(points[0]),
             VertexUntex(points[1]),
@@ -2018,10 +2009,9 @@ class TriUntex(object):
         ]
         self.unknown = unknown
         self.visAngles = visAngles
-        return self
    
 class QuadUntex(object):
-    def fromData(self, points, unknown, visAngles):
+    def __init__(self, points, unknown, visAngles):
         self.vtxs = [
             VertexUntex(points[0]),
             VertexUntex(points[1]),
@@ -2030,24 +2020,7 @@ class QuadUntex(object):
         ]
         self.unknown = unknown
         self.visAngles = visAngles
-        return self
 
-
-class Terrain(object):
-    def __init__(self, size, tiles):
-        self.tiles = []
-        (sizeX, sizeZ) = size
-        self.size = size
-        for y in range(2):
-            offset = 256 * y
-            level = []
-            for z in range(sizeZ):
-                row = []
-                for x in range(sizeX):
-                    row.append(tiles[offset])
-                    offset += 1
-                level.append(row)
-            self.tiles.append(level)
 
 class Map(object):
     def __init__(self):
@@ -2219,11 +2192,22 @@ class Map(object):
         # reading chunk 0x1a
         data = self.resources.chunks[0x1a].chunks[0x1a]
         ofs = 0
-        terrainSize = read(c_uint8 * 2)
+        terrainSize = read(c_uint8 * 2)  # (sizeX, sizeZ)
         # weird, it leaves room for 256 total tiles for the first xz plane, and then the second is packed?
-        terrainTiles = read(TerrainTile * (256 + terrainSize[0] * terrainSize[1]))
-        self.terrain = Terrain(terrainSize, terrainTiles)
+        terrainTileSrc = read(TerrainTile * (256 + terrainSize[0] * terrainSize[1]))
         # done reading chunk 0x1a
+
+        # convert the terrainTiles from [z * terrainSize[0] + x] w/padding for y to [y][z][x]
+        self.terrainSize = terrainSize
+        self.terrainTiles = []
+        for y in range(2):
+            level = []
+            for z in range(self.terrainSize[1]):
+                row = []
+                for x in range(self.terrainSize[0]):
+                    row.append(terrainTileSrc[256 * y + z * terrainSize[0] + x])
+                level.append(row)
+            self.terrainTiles.append(level)
 
 
         bboxMin = [math.inf] * 3
@@ -2239,9 +2223,10 @@ class Map(object):
             self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
         self.center = tuple(self.center)
 
+        # still not sure if it's worth saving this in its own structure ...
         self.triTexs = []
         for i in range(hdr.numTriTex):
-            self.triTexs.append(TriTex().fromData(
+            self.triTexs.append(TriTex(
                 triTexVtxs[3*i:3*(i+1)],
                 triTexNormals[3*i:3*(i+1)],
                 triTexFaces[i],
@@ -2251,7 +2236,7 @@ class Map(object):
 
         self.quadTexs = []
         for i in range(hdr.numQuadTex):
-            self.quadTexs.append(QuadTex().fromData(
+            self.quadTexs.append(QuadTex(
                 quadTexVtxs[4*i:4*(i+1)],
                 quadTexNormals[4*i:4*(i+1)],
                 quadTexFaces[i],
@@ -2261,7 +2246,7 @@ class Map(object):
 
         self.triUntexs = []
         for i in range(hdr.numTriUntex):
-            self.triUntexs.append(TriUntex().fromData(
+            self.triUntexs.append(TriUntex(
                 triUntexVtxs[3*i:3*(i+1)],
                 triUntexUnknowns[i],
                 triUntexVisAngles[i]
@@ -2269,7 +2254,7 @@ class Map(object):
 
         self.quadUntexs = []
         for i in range(hdr.numQuadUntex):
-            self.quadUntexs.append(QuadUntex().fromData(
+            self.quadUntexs.append(QuadUntex(
                 quadUntexVtxs[4*i:4*(i+1)],
                 quadUntexUnknowns[i],
                 quadUntexVisAngles[i]
@@ -2593,9 +2578,9 @@ def load(context,
         tmeshFaces = []
         tilesFlattened = []
         for y in range(2):
-            for z in range(map.terrain.size[1]):
-                for x in range(map.terrain.size[0]):
-                    tile = map.terrain.tiles[y][z][x]
+            for z in range(map.terrainSize[1]):
+                for x in range(map.terrainSize[0]):
+                    tile = map.terrainTiles[y][z][x]
                     vi = len(tmeshVtxs)
                     tmeshFaces.append([vi+0, vi+1, vi+2, vi+3])
                     for (i, q) in enumerate(quadVtxs):
