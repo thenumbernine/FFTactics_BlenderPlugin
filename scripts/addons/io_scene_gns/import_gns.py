@@ -360,7 +360,7 @@ class Resources(object):
         polygons_data = pack('<4H', *[len(x) for x in [self.triTexs, self.quadTexs, self.triUntexs, self.quadUntexs]])
         for polygon in polygons:
             for v in polygon.vtxs:
-                polygons_data += pack('<3h', *v.point)
+                polygons_data += pack('<3h', *v.pos)
         for polygon in self.triTexs + self.quadTexs:
             for v in polygon.vtxs:
                 polygons_data += pack('<3h', *[int(x * 4096.) for x in v.normal])
@@ -1957,10 +1957,10 @@ gnslines = {
 ################################ fft/map/__init__.py ################################
 
 class VertexTex(object):
-    def __init__(self, point, normal, texcoord):
-        self.point = point.toTuple()
-        self.normal = normal.toTuple()
-        self.texcoord = texcoord.toTuple()
+    def __init__(self, pos, normal, texcoord):
+        self.pos = pos
+        self.normal = normal
+        self.texcoord = texcoord
 
 class TriTex(object):
     def __init__(self, points, normals, texFace, tilePos, visAngles):
@@ -1997,8 +1997,8 @@ class QuadTex(object):
 
 
 class VertexUntex(object):
-    def __init__(self, point):
-        self.point = point.toTuple()
+    def __init__(self, pos):
+        self.pos = pos
 
 class TriUntex(object):
     def __init__(self, points, unknown, visAngles):
@@ -2331,13 +2331,6 @@ def load(context,
         if global_matrix is None:
             global_matrix = mathutils.Matrix()
 
-        verts_loc = []
-        verts_nor = []
-        verts_tex = []
-        faces = []  # tuples of the faces
-        material_libs = set()  # filenames to material libs this OBJ uses
-        vertex_groups = {}
-
         unique_materials = {}
 
         progress.enter_substeps(3, "Parsing GNS file...")
@@ -2439,65 +2432,65 @@ def load(context,
 
         # flip face order
         # I guess I could just set the cw vs ccw ...
+        # also handle FFT tristrip => Blender quads
         def vertexesForPoly(poly):
             if len(poly.vtxs) == 4:
-                return [poly.vtxs[2], poly.vtxs[3], poly.vtxs[1], poly.vtxs[0]]        # cw => ccw and tristrip -> quad
+                return [poly.vtxs[2], poly.vtxs[3], poly.vtxs[1], poly.vtxs[0]]  # cw => ccw and tristrip -> quad
             return [poly.vtxs[2], poly.vtxs[1], poly.vtxs[0]]                    # cw front-face => ccw front-face
 
+        meshVtxPos = []
+        meshVtxNormals = []
+        meshVtxTCs = []
+        faces = []  # tuples of the faces
         vi = 0
         vti = 0
         for s in map.polygons():
-            V = vertexesForPoly(s)
-            n = len(V)
-            for v in V:
-                vtxHasTexCoord = isinstance(s, TriTex) or isinstance(s, QuadTex)
-                verts_loc.append(v.point)
+            isTexd = isinstance(s, TriTex) or isinstance(s, QuadTex)
+            vs = vertexesForPoly(s)
+            n = len(vs)
+            for v in vs:
+                meshVtxPos.append(v.pos.toTuple())
 
-                if vtxHasTexCoord:
-                    verts_tex.append((
-                        v.texcoord[0] / 256.,
-                        (s.texturePage + v.texcoord[1] / 256.) / 4.
+                if isTexd:
+                    meshVtxTCs.append((
+                        v.texcoord.x / 256.,
+                        (s.texturePage + v.texcoord.y / 256.) / 4.
                     ))
-                    verts_nor.append(v.normal)
+                    meshVtxNormals.append(v.normal.toTuple())
                 else:
                     # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
                     #  Error: Array length mismatch (got 6615, expected more)
                     # should I put the non-texcoord/normal'd faces in a separate mesh?
                     # TODO give them their own material
-                    verts_tex.append((0,0))
-                    verts_nor.append((0,0,0))
+                    meshVtxTCs.append((0,0))
+                    meshVtxNormals.append((0,0,0))
 
             # turn all polys into fans
             for i in range(1,n-1):
                 face_vert_loc_indices = [vi+0, vi+i, vi+i+1]
-                #if vtxHasTexCoord:
+                #if isTexd:
                 face_vert_nor_indices = [vti+0, vti+i, vti+i+1]
                 face_vert_tex_indices = [vti+0, vti+i, vti+i+1]
                 faces.append((
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    matTexNamePerPal[s.paletteIndex] if vtxHasTexCoord else matWOTexName,
-                    None, # used to be smooth ...
-                    None, # used to be object key?
-                    [],  # If non-empty, that face is a Blender-invalid ngon (holes...), need a mutable object for that...
+                    matTexNamePerPal[s.paletteIndex] if isTexd else matWOTexName
                 ))
             vi+=n
-            #if vtxHasTexCoord:
+            #if isTexd:
             vti+=n
 
-        loops_vert_idx = tuple(vidx for (face_vert_loc_indices, _, _, _, _, _, _) in faces for vidx in face_vert_loc_indices)
-        print('len faces', len(faces))
-        print('len loops_vert_idx', len(loops_vert_idx))
+        loops_vert_idx = tuple(vidx for (face_vert_loc_indices, _, _, _) in faces for vidx in face_vert_loc_indices)
 
         fgon_edges = set()
         tot_loops = 3 * len(faces)
 
         mesh.polygons.add(len(faces))
         mesh.loops.add(tot_loops)
-        mesh.vertices.add(len(verts_loc))
+        mesh.vertices.add(len(meshVtxPos))
 
-        mesh.vertices.foreach_set("co", unpack_list(verts_loc))
+        mesh.vertices.foreach_set("co", unpack_list(meshVtxPos))
 
         faces_loop_start = []
         lidx = 0
@@ -2506,38 +2499,37 @@ def load(context,
             nbr_vidx = len(face_vert_loc_indices)
             faces_loop_start.append(lidx)
             lidx += nbr_vidx
-        faces_loop_total = tuple(len(face_vert_loc_indices) for (face_vert_loc_indices, _, _, _, _, _, _) in faces)
-
-        print('len faces', len(faces))
-        print('len loops_vert_idx', len(loops_vert_idx))
+        faces_loop_total = tuple(len(face_vert_loc_indices) for (face_vert_loc_indices, _, _, _) in faces)
 
         mesh.loops.foreach_set("vertex_index", loops_vert_idx)
         mesh.polygons.foreach_set("loop_start", faces_loop_start)
         mesh.polygons.foreach_set("loop_total", faces_loop_total)
 
-        faces_ma_index = tuple(material_mapping[context_material] for (_, _, _, context_material, _, _, _) in faces)
+        faces_ma_index = tuple(material_mapping[context_material] for (_, _, _, context_material) in faces)
         mesh.polygons.foreach_set("material_index", faces_ma_index)
 
         mesh.polygons.foreach_set("use_smooth", [False] * len(faces))
 
-        if verts_nor and mesh.loops:
+        if meshVtxNormals and mesh.loops:
             mesh.create_normals_split()
-            loops_nor = tuple(no for (_, face_vert_nor_indices, _, _, _, _, _) in faces
+            mesh.loops.foreach_set(
+                "normal",
+                tuple(no for (_, face_vert_nor_indices, _, _) in faces
                                  for face_noidx in face_vert_nor_indices
-                                 for no in verts_nor[face_noidx])
-            mesh.loops.foreach_set("normal", loops_nor)
+                                 for no in meshVtxNormals[face_noidx])
+            )
 
-        if verts_tex and mesh.polygons:
+        if meshVtxTCs and mesh.polygons:
             mesh.uv_layers.new(do_init=False)
-            loops_uv = tuple(uv for (_, _, face_vert_tex_indices, _, _, _, _) in faces
+            loops_uv = tuple(uv for (_, _, face_vert_tex_indices, _) in faces
                                 for face_uvidx in face_vert_tex_indices
-                                for uv in verts_tex[face_uvidx])
+                                for uv in meshVtxTCs[face_uvidx])
             mesh.uv_layers[0].data.foreach_set("uv", loops_uv)
 
         mesh.validate(clean_customdata=False)  # *Very* important to not remove lnors here!
         mesh.update()
 
-        if verts_nor:
+        if meshVtxNormals:
             clnors = array.array('f', [0.0] * (len(mesh.loops) * 3))
             mesh.loops.foreach_get("normal", clnors)
             mesh.polygons.foreach_set("use_smooth", [False] * len(mesh.polygons))
@@ -2549,11 +2541,6 @@ def load(context,
         meshObj.matrix_world = global_matrix
         meshObj.scale = 1./28., 1./24., 1./28.
         newObjects.append(meshObj)
-
-        for group_name, group_indices in vertex_groups.items():
-            group = meshObj.vertex_groups.new(name=group_name.decode('utf-8', "replace"))
-            group.add(group_indices, 1.0, 'REPLACE')
-
 
         ### create the terrain
 

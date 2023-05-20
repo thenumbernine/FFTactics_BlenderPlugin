@@ -40,6 +40,7 @@ TODO:
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
 - should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
+- if I'm writing a plugin for blender IO, why not also write a plugin for face-picking that pops up editing the different custom-face attributes?
 - exporting.
 
 ## Sources:
