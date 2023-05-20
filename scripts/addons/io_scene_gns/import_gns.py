@@ -2,23 +2,19 @@
 
 import array
 import os
+import os.path
+import sys
 import time
 import bpy
 import math
 import mathutils
+from ctypes import *
+from datetime import datetime
 
 from bpy_extras.io_utils import unpack_list
 from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 
-################################ all the ganesha imports ################################
-
-import os, sys, struct
-import os.path
-from os.path import getsize
-from datetime import datetime
-
-from ctypes import *
 
 class MyStruct(Structure):
     # why isn't there an eays wya to do this?
@@ -249,30 +245,6 @@ class TwoNibbles(MyStruct):
 def readStruct(file, struct):
     return struct.from_buffer_copy(file.read(sizeof(struct)))
 
-################################ fft/map/texture.py ################################
-
-class Texture_File(object):
-    def __init__(self):
-        self.filepath = None
-        self.file = None
-        self.data = None
-
-    def read(self, files):
-        # wait, what if there's two files?
-        # the old obj properties just get overwritten?
-        for filepath in files:
-            self.filepath = filepath
-            self.file = open(self.filepath, 'rb')
-            self.data = self.file.read()
-            self.data = (TwoNibbles * len(self.data)).from_buffer_copy(self.data)
-            self.file.close()
-            break
-
-    def write(self, data):
-        self.file = open(self.filepath, 'wb')
-        self.file.write(data)
-        self.file.close()
-
 ################################ fft/map/resource.py ################################
 
 # this holds the TOC list of int32 offsets per ... resource?
@@ -288,7 +260,7 @@ class Resource(object):
     # check.
     def read(self, filepath):
         self.filepath = filepath
-        self.size = getsize(self.filepath)
+        self.size = os.path.getsize(self.filepath)
         self.file = open(self.filepath, 'rb')
         self.toc = readStruct(self.file, c_uint32 * 49)
         self.file.seek(0)
@@ -1904,7 +1876,6 @@ class QuadUntex(object):
 
 class Map(object):
     def __init__(self):
-        self.texture = Texture_File()
         self.resources = Resources()
         self.situations = []
         self.items = {}
@@ -1915,21 +1886,13 @@ class Map(object):
         self.setSituation(0)
 
         # what if there's more than 1?
-        self.texture.read(self.textureFiles)
+        # textureFilenames is set from situation ...
+        # how to handle multiple situations?
+        assert len(self.textureFilenames) == 1
+        self.readTexture()
         self.resources.read(self.resourceFiles)
 
         self.readFromChunks()
-
-        # expand the 8-bits into separate 4-bits into an image double array
-        # this isn't grey, it's indexed into one of the 16 palettes.
-        self.textureIndexedData = []       # [y][x] in [0,15] integers
-        for y in range(1024):
-            dstrow = []
-            for x in range(128):
-                pair = self.texture.data[x + y * 128]
-                dstrow.append(pair.lo)
-                dstrow.append(pair.hi)
-            self.textureIndexedData.append(dstrow)
 
         return self
 
@@ -1951,6 +1914,17 @@ class Map(object):
                 self.items[(sit.index1, sit.arrange, sit.time, sit.weather, 'res')] = resFilePath
         self.situations = sorted(situations.keys())
         file.close()
+
+    # check.
+    def setSituation(self, sitIndex):
+        self.sitIndex = sitIndex % len(self.situations)
+        self.textureFilenames = self.getTextureFiles(self.sitIndex)
+        self.resourceFiles = self.getResourceFiles(self.sitIndex)
+        self.resources = Resources()
+        # how often is this more than 1 file?
+        print('self.textureFilenames', self.textureFilenames)
+        print('self.resourceFiles', self.resourceFiles)
+
 
     def getTextureFiles(self, sitIndex):
         s = Situation(*self.situations[sitIndex])
@@ -1982,15 +1956,36 @@ class Map(object):
                 found.append(self.items[key])
         return found
 
-    # check.
-    def setSituation(self, sitIndex):
-        self.sitIndex = sitIndex % len(self.situations)
-        self.textureFiles = self.getTextureFiles(self.sitIndex)
-        self.resourceFiles = self.getResourceFiles(self.sitIndex)
-        self.resources = Resources()
-        # how often is this more than 1 file?
-        print('self.textureFiles', self.textureFiles)
-        print('self.resourceFiles', self.resourceFiles)
+    def readTexture(self):
+        assert len(self.textureFilenames) == 1
+        file = open(self.textureFilenames[0], 'rb')
+        data = file.read()
+        self.textureData = (TwoNibbles * len(data)).from_buffer_copy(data)
+        file.close()
+
+        # expand the 8-bits into separate 4-bits into an image double array
+        # this isn't grey, it's indexed into one of the 16 palettes.
+        self.textureIndexedData = []       # [y][x] in [0,15] integers
+        for y in range(1024):
+            dstrow = []
+            for x in range(128):
+                pair = self.textureData[x + y * 128]
+                dstrow.append(pair.lo)
+                dstrow.append(pair.hi)
+            self.textureIndexedData.append(dstrow)
+
+    def writeTexture(self):
+        data = ''
+        for y in range(1024):
+            for x in range(128):
+                lo = self.textureIndexedData[y][x*2]
+                hi = self.textureIndexedData[y][x*2 + 1]
+                data += bytes(TwoNibbles(lo, hi))
+        assert len(self.textureFilenames) == 1
+        file = open(self.textureFilenames[0], 'wb')
+        file.write(data)
+        file.close()
+
 
     # check.
     def readFromChunks(self):
@@ -2145,7 +2140,7 @@ class Map(object):
         self.writeDirLights()
         self.writeTerrain()
 
-        #self.texture.write()
+        self.writeTexture()
         self.resources.write()
 
     def writePolygons(self):
@@ -2223,9 +2218,10 @@ class Map(object):
             + olddata[ofs + len(data):]
         )
 
-    def writeTerrain(self, terrain):
-        self.terrainSize[0] = len(terrain.tiles[0][0])
-        self.terrainSize[1] = len(terrain.tiles[0])
+    def writeTerrain(self):
+        assert len(self.terrainTiles) == 2
+        self.terrainSize[0] = len(self.terrainTiles.tiles[0][0])
+        self.terrainSize[1] = len(self.terrainTiles.tiles[0])
         data = bytes(self.terrainSize)
         for level in self.terrainTiles:
             for row in level:
@@ -2241,18 +2237,8 @@ class Map(object):
             + olddata[ofs + len(data):]
         )
 
-    def writeTexture(self, texture):
-        data = ''
-        for y in range(1024):
-            for x in range(128):
-                lo = texture[y][x*2]
-                hi = texture[y][x*2 + 1]
-                data += bytes(TwoNibbles(lo, hi))
-        self.texture.write(data)
-
     def polygons(self):
         return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
-
 
 ################################ import_gns ################################
 
