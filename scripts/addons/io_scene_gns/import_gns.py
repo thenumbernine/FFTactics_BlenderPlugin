@@ -47,6 +47,15 @@ class SituationEx(MyStruct):
         ('unused0A', c_uint32),
     ]
 
+class MeshHeader(MyStruct):
+    _pack_ = 1
+    _fields_ = [
+        ('numTriTex', c_uint16),
+        ('numQuadTex', c_uint16),
+        ('numTriUntex', c_uint16),
+        ('numQuadUntex', c_uint16),
+    ]
+
 # aka VertexPos
 class short3_t(MyStruct):
     _pack_ = 1
@@ -126,10 +135,10 @@ assert(sizeof(TilePos) == 2)
 class RGBA5551(MyStruct):
     _pack_ = 1
     _fields_ = [
-        ('r', c_ushort, 5),
-        ('g', c_ushort, 5),
-        ('b', c_ushort, 5),
-        ('a', c_ushort, 1)
+        ('r', c_uint16, 5),
+        ('g', c_uint16, 5),
+        ('b', c_uint16, 5),
+        ('a', c_uint16, 1)
     ]
    
     # TODO need some generic conversion method names?
@@ -143,14 +152,36 @@ class RGBA5551(MyStruct):
             a = 1.
         return (r,g,b,a)
 
-class MeshHeader(MyStruct):
+# hmm can I inerit from c_uint16 and override some behavior or something?
+#class LightColorChannel(MyStruct):
+
+class LightColors(MyStruct):
     _pack_ = 1
     _fields_ = [
-        ('numTriTex', c_uint16),
-        ('numQuadTex', c_uint16),
-        ('numTriUntex', c_uint16),
-        ('numQuadUntex', c_uint16),
+        ('r', c_uint16 * 3),
+        ('g', c_uint16 * 3),
+        ('b', c_uint16 * 3),
     ]
+
+    # maybe an index operator?
+    def ithToTuple(self, i):
+        mask = (1<<11)-1
+        return (
+            (self.r[i] & mask) / float(mask),
+            (self.g[i] & mask) / float(mask),
+            (self.b[i] & mask) / float(mask)
+        )
+
+class RGB888(MyStruct):
+    _pack_ = 1
+    _fields_ = [
+        ('r', c_uint8),
+        ('g', c_uint8),
+        ('b', c_uint8),
+    ]
+
+    def toTuple(self):
+        return (self.r / 255., self.g / 255., self.b / 255.)
 
 def readStruct(file, struct):
     return struct.from_buffer_copy(file.read(sizeof(struct)))
@@ -260,76 +291,12 @@ class Resources(object):
                     print('setting chunk', i, 'to', file_path)
                     self.chunks[i] = resource
 
-    # check.
-    def get_color_palettes(self):
-        resource = self.chunks[0x11]
-        data = resource.chunks[0x11]
-        ofs = 0
-        for i in range(16):
-            yield data[ofs:ofs+32]
-            ofs += 32
-
-    # struct fixed16_t { uint16_t ipart : 4; uint16_t fpart : 12 };
-    # struct { fixed16_t red[3], green[3], blue[3] }
-    def get_dir_light_rgb(self):
-        resource = self.chunks[0x19]
-        data = resource.chunks[0x19]
-        atou16 = lambda data: unpack('<H', data)[0]
-        ofs = 0
-        for i in range(3):
-            # GaneshaDx says read signed (?) int16, clamp the value to 2040 (2048?), then divide by 8 to get [0,255]
-            # so that means the bottom 11 bits are color channels
-            # then what are the top 5 bits?
-            mask = (1<<11)-1
-            yield (
-                (atou16(data[ofs:ofs+2]) & mask) / float(mask),
-                (atou16(data[ofs+6:ofs+8]) & mask) / float(mask),
-                (atou16(data[ofs+12:ofs+14]) & mask) / float(mask)
-            )
-            ofs += 2
-
-    # struct{ short x,y,z }[3];
-    def get_dir_light_norm(self):
-        resource = self.chunks[0x19]
-        data = resource.chunks[0x19]
-        ofs = 18
-        for i in range(3):
-            yield unpack('<3h', data[ofs:ofs+6])
-            ofs += 6
-
-    # struct color_t { byte r,g,b };
-    # color_t color
-    def get_amb_light_rgb(self):
-        resource = self.chunks[0x19]
-        data = resource.chunks[0x19]
-        offset = 36
-        return [x/255. for x in unpack('<3B', data[offset:offset+3])]
-
-    # struct { color_t top, bottom };
-    def get_background(self):
-        resource = self.chunks[0x19]
-        data = resource.chunks[0x19]
-        offset = 39
-        return [
-            unpack('<3B', data[offset:offset+3]),
-            unpack('<3B', data[offset+3:offset+6])
-        ]
-
     # TODO
     def get_terrain(self):
         resource = self.chunks[0x1a]
         data = resource.chunks[0x1a]
         offset = 0
         return data
-
-    # check.
-    def get_gray_palettes(self):
-        resource = self.chunks[0x1f]
-        data = resource.chunks[0x1f]
-        offset = 0
-        for i in range(16):
-            yield data[offset:offset+32]
-            offset += 32
 
     def write(self):
         written = []
@@ -2104,22 +2071,8 @@ class Map(object):
         
         self.texture.read(self.textureFiles)
         self.resources.read(self.resourceFiles)
-        self.readPolygons()
-
-        self.color_palettes = [
-            [RGBA5551.from_buffer_copy(paletteData[i*2:i*2+2]).toTuple() for i in range(16)]
-            for paletteData in self.resources.get_color_palettes()
-        ]
-        self.gray_palettes = [
-            [RGBA5551.from_buffer_copy(paletteData[i*2:i*2+2]).toTuple() for i in range(16)]
-            for paletteData in self.resources.get_gray_palettes()
-        ]
-
-        self.dir_light_rgb = [l for l in self.resources.get_dir_light_rgb()]
-        self.dir_light_norm = [l for l in self.resources.get_dir_light_norm()]
-        self.amb_light_rgb = self.resources.get_amb_light_rgb()
-        self.background = self.resources.get_background()
-        self.terrain = Terrain(self.resources.get_terrain())
+        
+        self.readFromChunks()
 
         # expand the 8-bits into separate 4-bits into an image double array
         # this isn't grey, it's indexed into one of the 16 palettes.
@@ -2197,7 +2150,7 @@ class Map(object):
         print('self.resourceFiles', self.resourceFiles)
 
     # check.
-    def readPolygons(self):
+    def readFromChunks(self):
         data = None
         ofs = 0
         
@@ -2245,6 +2198,34 @@ class Map(object):
         # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
 
         # done reading chunk 0x2c
+
+        # reading chunk 0x11
+        data = self.resources.chunks[0x11].chunks[0x11]
+        ofs = 0
+        self.colorPals = []
+        for i in range(16):
+            self.colorPals.append(read(RGBA5551 * 16))
+        # done reading chunk 0x11
+
+        # reading chunk 0x1f
+        data = self.resources.chunks[0x1f].chunks[0x1f]
+        ofs = 0
+        self.grayPals = []
+        for i in range(16):
+            self.grayPals.append(read(RGBA5551 * 16))
+        # done reading chunk 0x1f
+
+        # reading chunk 0x19
+        data = self.resources.chunks[0x19].chunks[0x19]
+        ofs = 0
+        self.dirLightColors = read(LightColors)
+        self.dirLightDirs = read(short3_t * 3)
+        self.ambientLightColor = read(RGB888)
+        self.backgroundColors = read(RGB888 * 2)
+        # done reading chunk 0x19
+        
+        self.terrain = Terrain(self.resources.get_terrain())
+
 
         bboxMin = [math.inf] * 3
         bboxMax = [-math.inf] * 3
@@ -2433,15 +2414,15 @@ def load(context,
 
 
         # write out each individual 16 palettes
-        imagePerPal = [None] * len(map.color_palettes)
-        matTexNamePerPal = [None] * len(map.color_palettes)
-        for (i, palette) in enumerate(map.color_palettes):
+        imagePerPal = [None] * len(map.colorPals)
+        matTexNamePerPal = [None] * len(map.colorPals)
+        for (i, palColor) in enumerate(map.colorPals):
             imagePerPal[i] = bpy.data.images.new('GNS Tex Pal '+str(i), width=256, height=1024)
             imagePerPal[i].pixels = [
                 ch
                 for row in map.textureIndexedData
                 for colorIndex in row
-                for ch in palette[colorIndex]
+                for ch in palColor[colorIndex].toTuple()
             ]
             matTexNamePerPal[i] = 'GNS Mat Tex Pal '+str(i)
             makeTexMat(matTexNamePerPal[i], imagePerPal[i])
@@ -2679,7 +2660,7 @@ def load(context,
             lightName = 'GNS Light '+str(i)
             lightData = bpy.data.lights.new(name=lightName, type='SUN')
             lightData.energy = 20       # ?
-            lightData.color = map.dir_light_rgb[i]
+            lightData.color = map.dirLightColors.ithToTuple(i)
             lightData.angle = math.pi
             lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
             # matrix_world rotate y- to z+ ...
@@ -2693,9 +2674,9 @@ def load(context,
                 -map.bbox[0][1] / global_scale_z
             )
             lightObj.location = lightPos[0], lightPos[1], lightPos[2]
-            # calculate lightObj Euler angles by dir_light_norm
+            # calculate lightObj Euler angles by dirLightDirs
             # TODO figure out which rotates which...
-            dir = map.dir_light_norm[i]
+            dir = map.dirLightDirs[i].toTuple()
             print('light dir', dir)
             eulerAngles = (
                 math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), dir[1]), # pitch
@@ -2717,7 +2698,7 @@ def load(context,
         # ... overriding the world background
         world = bpy.data.worlds['World']
         background = world.node_tree.nodes['Background']
-        background.inputs[0].default_value[:3] = map.amb_light_rgb
+        background.inputs[0].default_value[:3] = map.ambientLightColor.toTuple()
         background.inputs[1].default_value = 5.
 
         # ... but the most common way of doing a skybox in blender is ...
