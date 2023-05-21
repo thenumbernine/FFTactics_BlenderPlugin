@@ -33,7 +33,6 @@ The map ambient light is assigned to the world background color.
 The terrain tiles are imported and custom per-face attributes are stored.  These can be accessed from 'Geometry Nodes' -> 'Face' -> scroll right in list of face attributes to see all the extra custom ones.
 
 TODO:
-- separate the indexed-texture from the palettes, and make palettes somehow easily swappable in blender.
 - I'm handling ambient via assigning it to the world background color.  is this a good thing?
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
 - preserve situations?  right now it's just reading the first texture from the first situation.
@@ -42,6 +41,7 @@ TODO:
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
 - should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
 - if I'm writing a plugin for blender IO, why not also write a plugin for face-picking that pops up editing the different custom-face attributes?
+- multiple objects / layers / scenes / whatever per map configuration, read and write all at once instead of picking your configuration upon file load.
 - exporting.
 
 ## Sources:
