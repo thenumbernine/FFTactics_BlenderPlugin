@@ -39,6 +39,8 @@ TODO:
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
+- - sphere, centered at the map origin, size is 20, smooth-shaded, flip normals, with material...
+- - ...material shader nodes: Geometry.Position -> Separate XYZ.Z -> Map Range From (5, -5) to (0, 1) -> Mix factor, with 'A' the top color and 'B' the bottom color -> Base Color
 - should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
 - if I'm writing a plugin for blender IO, why not also write a plugin for face-picking that pops up editing the different custom-face attributes?
 - multiple objects / layers / scenes / whatever per map configuration, read and write all at once instead of picking your configuration upon file load.
