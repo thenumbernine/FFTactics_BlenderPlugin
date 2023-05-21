@@ -335,6 +335,15 @@ class Resource(object):
         self.file.close()
 
 
+chunkNames = {
+    0x10 : 'mesh',
+    0x2c : 'vis angles',
+    0x11 : 'color pals',
+    0x19 : 'lights',
+    0x1a : 'terrain',
+    0x1f : 'grey pals',
+}
+
 class Resources(object):
     def __init__(self):
         super(Resources, self).__init__()
@@ -347,7 +356,7 @@ class Resources(object):
             resource.read(filepath)
             for i in range(49):
                 if resource.chunks[i]:
-                    print('setting chunk', i, 'to', filepath)
+                    print('setting chunk '+str(i)+((' '+chunkNames[i]) if i in chunkNames else '')+' to '+filepath)
                     self.chunks[i] = resource
 
     def write(self):
@@ -864,13 +873,13 @@ class Map(object):
 ################################ import_gns ################################
 
 # https://blender.stackexchange.com/a/239948
-def find_nodes_by_type(material, node_type):
-    node_list = []
+def findNodesByType(material, nodeType):
+    nodes = []
     if material.use_nodes and material.node_tree:
-            for n in material.node_tree.nodes:
-                if n.type == node_type:
-                    node_list.append(n)
-    return node_list
+        for n in material.node_tree.nodes:
+            if n.type == nodeType:
+                nodes.append(n)
+    return nodes
 
 def load(context,
          filepath,
@@ -909,23 +918,69 @@ def load(context,
 
         ### make the material for textured faces
 
-        # for now lets have 1 material to parallel ganesha / my obj exporter
-        # later I can do 1 material per palette or something
+        # write out the palettes as images themselves
+        # hook these up to the indexed image and no more need for the imagePerPal
+        palImgs = [None] * len(map.colorPals)
+        #matPalNames = [None] * len(map.colorPals)
+        for (i, pal) in enumerate(map.colorPals):
+            palImgs[i] = bpy.data.images.new('GNS Pal Tex '+str(i), width=16, height=1)
+            palImgs[i].pixels = [
+                ch
+                for colorIndex in range(16)
+                for ch in pal[colorIndex].toTuple()
+            ]
+            # do I want a material of this?  or just the image, then connect the image via nodes in the indexed material?
+            #matPalNames[i] = 'GNS Mat Pal '+str(i)
+            #makeTexMat(matPalNames[i], palImgs[i])
 
-        def makeTexMat(name, image):
+        # here's the indexed texture, though it's not attached to anything
+        indexImg = bpy.data.images.new('GNS Tex Indexed', width=256, height=1024)
+        indexImg.alpha_mode = 'NONE'
+        #indexImg.colorspace_settings.is_data = True
+        #indexImg.colorspace_settings.name = 'NONE' #docs
+        # ('Filmic Log', 'Filmic sRGB', 'Linear', 'Linear ACES', 'Linear ACEScg', 'Non-Color', 'Raw', 'sRGB', 'XYZ')
+        indexImg.colorspace_settings.name = 'Raw' #forums
+        indexImg.pixels = [
+            ch
+            for row in map.textureIndexedData
+            for colorIndex in row
+            for ch in (
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                1.
+            )
+        ]
+ 
+
+
+        # write out the indexed image with each 16 palettes applied to it
+        imagePerPal = [None] * len(map.colorPals)
+        matTexNamePerPal = [None] * len(map.colorPals)
+        for (i, pal) in enumerate(map.colorPals):
+            name ='GNS Mat Tex w Pal '+str(i)
+            matTexNamePerPal[i] = name
+
             # get image ...
             # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
             matWTex = unique_materials[name] = bpy.data.materials.new(name)
             matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
             matWTexWrap.use_nodes = True
-            matWTexWrap.base_color_texture.image = image
-            matWTexWrap.base_color_texture.texcoords = 'UV'
+
+            # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
+            indexNode = matWTex.node_tree.nodes.new('ShaderNodeTexImage')
+            indexNode.image = indexImg
+            palNode = matWTex.node_tree.nodes.new('ShaderNodeTexImage')
+            palNode.image = palImgs[i]
+
+            bsdf = findNodesByType(matWTex, 'BSDF_PRINCIPLED')[0]
+            matWTex.node_tree.links.new(bsdf.inputs['Base Color'], palNode.outputs['Color'])
+            matWTex.node_tree.links.new(bsdf.inputs['Alpha'], palNode.outputs['Alpha'])
+            matWTex.node_tree.links.new(palNode.inputs['Vector'], indexNode.outputs['Color'])
+            
             # setup transparency
             # link texture alpha channel to Principled BSDF material
             # https://blender.stackexchange.com/a/239948
-            matWTex.node_tree.links.new(
-                find_nodes_by_type(matWTex, 'BSDF_PRINCIPLED')[0].inputs['Alpha'],
-                find_nodes_by_type(matWTex, 'TEX_IMAGE')[0].outputs['Alpha'])
             matWTexWrap.ior = 1.
             matWTexWrap.alpha = 1.
             #matWTex.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
@@ -936,41 +991,8 @@ def load(context,
             matWTexWrap.specular_tint = 0.
             matWTexWrap.roughness = 0.
 
-        # here's the indexed texture, though it's not attached to anything
-        matTexIndexedImg = bpy.data.images.new('GNS Tex Indexed', width=256, height=1024)
-        matTexIndexedImg.pixels = [
-            ch
-            for row in map.textureIndexedData
-            for colorIndex in row
-            for ch in (
-                colorIndex/15.,
-                colorIndex/15.,
-                colorIndex/15.,
-                1.
-            )
-        ]
-        matTexIndexedName = 'GNS Mat Tex Indexed'
-        makeTexMat(matTexIndexedName, matTexIndexedImg)
 
-
-        # write out each individual 16 palettes
-        imagePerPal = [None] * len(map.colorPals)
-        matTexNamePerPal = [None] * len(map.colorPals)
-        for (i, palColor) in enumerate(map.colorPals):
-            imagePerPal[i] = bpy.data.images.new('GNS Tex Pal '+str(i), width=256, height=1024)
-            imagePerPal[i].pixels = [
-                ch
-                for row in map.textureIndexedData
-                for colorIndex in row
-                for ch in palColor[colorIndex].toTuple()
-            ]
-            matTexNamePerPal[i] = 'GNS Mat Tex Pal '+str(i)
-            makeTexMat(matTexNamePerPal[i], imagePerPal[i])
-
-        # TODO just write a single greyscale image,
-        # and write the 16 palettes
-        # and set up Graph Editor for dynamically picking the palette
-
+        # TODO set up Graph Editor for dynamically picking the palette
 
         ### make the material for untextured faces
 
