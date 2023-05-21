@@ -21,23 +21,42 @@ class MyStruct(LittleEndianStructure):
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
 
-# "Situation"? or file record or header or resource header or something else?
-class Situation(MyStruct):
+# list of these in the GNS file that direct us to other resources
+# what to call it? resource? resource header?
+class GNSRecord(MyStruct):
     _pack_ = 1
     _fields_ = [
         # GaneshaDx looks at only the low byte here,
         # and says only 0x22, 0x30, and 0x70 are acceptable
         ('sig', c_uint16),
         
+        # 0 = primary
+        # 1 = secondary
+        # from the consts in here I'd say there's up to ==5 ?
         ('arrangement', c_uint8),
+        
+        # temp or unknown?
         ('temp1', c_uint8, 4),
+        
+        # 0..4 by the enums in python Ganesha
+        # from 'none' to 'strong'
         ('weather', c_uint8, 3),
-        ('isDay', c_uint8, 1),    # day vs night?
+        
+        # 0 = day
+        # 1 = night
+        ('isNight', c_uint8, 1),    # day vs night?
         
         ('resourceFlag', c_uint8),  # always 1?
+        
+        # 0x17 = texture
+        # 0x2e = initial mesh
+        # 0x2f = replacement mesh
+        # 0x30 = alternative mesh
+        # 0x31 = EOF (and the struct might be truncated)
+        # 0x80 0x85 0x86 0x87 0x88 = also listed in GaneshaDx
         ('resourceType', c_uint8),
 
-        # trails Situation if it isn't a RESOURCE_EOF
+        # trails GNSRecord if it isn't a RESOURCE_EOF
         # do I really need to break these into two separate reads?
         # I think GaneshaDx puts a threshold of 20 bytes ... meaning we shoudl always be able to access both structs...
         
@@ -46,7 +65,7 @@ class Situation(MyStruct):
         ('size', c_uint32),         # file size, rounded up to 2k block
         ('unknownA', c_uint32),
     ]
-assert sizeof(Situation) == 20
+assert sizeof(GNSRecord) == 20
 
 class MeshHeader(MyStruct):
     _pack_ = 1
@@ -274,7 +293,7 @@ class Resource(object):
         for i, entry in enumerate(self.toc):
             begin = self.toc[i]
             if begin == 0:
-                print(filepath, i, 'resource offset is zero ... skipping')
+                #print(filepath, i, 'resource offset is zero ... skipping')
                 continue
             end = None
             for j in range(i + 1, len(self.toc)):
@@ -284,7 +303,7 @@ class Resource(object):
             if end == None:
                 end = self.size
             self.chunks[i] = data[begin:end]
-            print(i, self.filepath, begin, end)
+            #print(i, self.filepath, begin, end)
 
     def write(self):
         offset = sizeof(self.toc)
@@ -1887,17 +1906,14 @@ class QuadUntex(object):
 class Map(object):
     def __init__(self):
         self.resources = Resources()
-        self.situations = []
         self.items = {}
 
     def read(self, gnspath):
         self.readGNS(gnspath)
-        self.setSituation(0)
+        #self.setSituation(0)
 
         """
-        what if there's more than 1?
-        textureFilenames is set from situation ...
-        how to handle multiple situations?
+        what if there's more than 1 texture?
         map000 has no textures
         map051 and map105 have two textures (how are those extra textures referenced in the map file?)
         map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
@@ -1917,74 +1933,91 @@ class Map(object):
         has 1 eof (0x31)
         """
         self.readTexture()
-        self.resources.read(self.resourceFiles)
+        self.resources.read(self.meshFilenames)
 
         self.readFromChunks()
 
         return self
 
     # GaneshaDx here:
-    # iters thru whole file, reading Situation's as 20-bytes (or whatever remains)
+    # iters thru whole file, reading GNSRecord's as 20-bytes (or whatever remains)
     #  filters out only the tex & mesh res.
     # sort resources by sector
     def readGNS(self, filepath):
-        mapNum = int(filepath[-7:-4])
-        file = open(filepath, 'rb')
+        #mapNum = int(filepath[-7:-4])
         mapdir = os.path.dirname(filepath)
-        situations = {}
-        for lineNo in range(0x7fffffff): # or infinity or whatever.  why can't python just count integers without importing from another library?
-            sit = readStruct(file, Situation)
-            print('reading sit with sector', sit.sector, 'resourceType', sit.resourceType, 'resourceFlag', sit.resourceFlag)
-            if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_EOF:
+        filename = os.path.basename(filepath)
+        namesuffix = os.path.splitext(filename)[0]
+        file = open(filepath, 'rb')
+        allRecords = []
+        while True:
+            #s = readStruct(file, GNSRecord)
+            # but it could be incomplete right?
+            # file.read(numBytes) will fail gracefully
+            # but I think ctype.from_buffer_copy won't ...
+            sdata = file.read(sizeof(GNSRecord))
+            sdata = sdata + b'\x00' * (sizeof(GNSRecord) - len(sdata)) # pad?
+            s = GNSRecord.from_buffer_copy(sdata)
+            print('reading GNS record', s.sector, s.resourceType, s.arrangement, s.weather, s.isNight)
+            if s.resourceFlag == 1 and s.resourceType == RESOURCE_EOF:
                 break
-            resFilePath = os.path.join(mapdir, gnslines[(mapNum, lineNo)])
-            situations[(sit.sig, sit.arrangement, sit.weather, sit.isDay, sit.resourceType)] = True
-            if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_TEXTURE:
-                self.items[(sit.sig, sit.arrangement, sit.isDay, sit.weather, 'tex')] = resFilePath
-            else:
-                self.items[(sit.sig, sit.arrangement, sit.isDay, sit.weather, 'res')] = resFilePath
-        self.situations = sorted(situations.keys())
+            allRecords.append(s)
         file.close()
+        
+        allRecords.sort(key=lambda a: a.sector)
 
-    def setSituation(self, sitIndex):
-        self.sitIndex = sitIndex % len(self.situations)
-        self.textureFilenames = self.getTextureFiles(self.sitIndex)
-        self.resourceFiles = self.getResourceFiles(self.sitIndex)
-        self.resources = Resources()
-        # how often is this more than 1 file?
-        print('self.textureFilenames', self.textureFilenames)
-        print('self.resourceFiles', self.resourceFiles)
+        allTexRecords = []
+        allMeshRecords = []
+        for s in allRecords:
+            if s.resourceType == RESOURCE_TEXTURE:
+                allTexRecords.append(s)
+            elif (s.resourceType == RESOURCE_MESH_INIT
+                or s.resourceType == RESOURCE_MESH_REPL
+                or s.resourceType == RESOURCE_MESH_ALT):
+                allMeshRecords.append(s)
+            # else keep it anywhere?
 
-    def getTextureFiles(self, sitIndex):
-        (sig, arrangement, isDay, weather, resourceType) = self.situations[sitIndex]
-        found = []
-        for key in [
-            (sig, arrangement, isDay, weather, 'tex'),
-            (sig, arrangement, TIME_0, WEATHER_0, 'tex'),
-            (sig, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-            (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-            (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-            (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'tex'),
-        ]:
-            if key in self.items and self.items[key] not in found:
-                found.append(self.items[key])
-        return found
+        # now using sorted sectors and file suffixes, map all records to their files
+        allSectors = {}
+        for s in allRecords:
+            allSectors[s.sector] = True
+        allSectors = [x for x in allSectors.keys()]
+        allSectors.sort()
 
-    def getResourceFiles(self, sitIndex):
-        (sig, arrangement, isDay, weather, resourceType) = self.situations[sitIndex]
-        found = []
-        for key in [
-            (sig, arrangement, isDay, weather, 'res'),
-            (sig, arrangement, TIME_0, WEATHER_0, 'res'),
-            (sig, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-            (INDEX1_70, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-            (INDEX1_30, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-            (INDEX1_22, ARRANGE_0, TIME_0, WEATHER_0, 'res'),
-        ]:
-            if key in self.items and self.items[key] not in found:
-                found.append(self.items[key])
-        return found
+        # get all files in the same dir with matching prefix ...
+        allResFilenames = []
+        for fn in os.listdir(mapdir):
+            if fn != filename and os.path.splitext(fn)[0] == namesuffix:
+                allResFilenames.append(fn)
 
+        allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
+        #print(allSectors)
+        #print(allResFilenames)
+        assert len(allSectors) == len(allResFilenames)
+
+        # map from sector back to resource filename
+        filenameForSector = {}
+        for (sector, filename) in zip(allSectors, allResFilenames):
+            filenameForSector[sector] = filename
+
+        # now set the map state to its default: arrangement==0, weather==0 night==0
+        # what about maps that don't have this particular state?
+        # how about instead, sort all states, and pick the one closest to this ...
+        initMeshRecords = []
+        for s in allMeshRecords:
+            if s.arrangement==0 and s.weather==0 and s.isNight==0:
+                initMeshRecords.append(s)
+        initTexRecords = []
+        for s in allTexRecords:
+            if s.arrangement==0 and s.weather==0 and s.isNight==0:
+                initTexRecords.append(s)
+                break
+
+        # map from mesh and texture record to mesh filename
+        getPathForRecord = lambda s: os.path.join(mapdir, filenameForSector[s.sector])
+        self.meshFilenames = list(map(getPathForRecord, initMeshRecords))
+        self.textureFilenames = list(map(getPathForRecord, initTexRecords))
+            
     def readTexture(self):
         assert len(self.textureFilenames) == 1
         file = open(self.textureFilenames[0], 'rb')
