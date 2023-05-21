@@ -933,7 +933,7 @@ def load(context,
                 1.
             )
         ]
- 
+
         uniqueMaterials = {}
 
         # write out the indexed image with each 16 palettes applied to it
@@ -950,18 +950,21 @@ def load(context,
             matWrap.use_nodes = True
 
             # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
-            indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            indexNode.image = indexImg
-            indexNode.interpolation = 'Closest'
             palNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
             palNode.image = palImgs[i]
             palNode.interpolation = 'Closest'
-            
+            palNode.location = (-300, 0)
+
+            indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
+            indexNode.image = indexImg
+            indexNode.interpolation = 'Closest'
+            indexNode.location = (-600, 0)
+
             bsdf = mat.node_tree.nodes['Principled BSDF']
             mat.node_tree.links.new(bsdf.inputs['Base Color'], palNode.outputs['Color'])
             mat.node_tree.links.new(bsdf.inputs['Alpha'], palNode.outputs['Alpha'])
             mat.node_tree.links.new(palNode.inputs['Vector'], indexNode.outputs['Color'])
-            
+
             # setup transparency
             # link texture alpha channel to Principled BSDF material
             # https://blender.stackexchange.com/a/239948
