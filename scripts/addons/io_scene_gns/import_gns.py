@@ -872,15 +872,6 @@ class Map(object):
 
 ################################ import_gns ################################
 
-# https://blender.stackexchange.com/a/239948
-def findNodesByType(material, nodeType):
-    nodes = []
-    if material.use_nodes and material.node_tree:
-        for n in material.node_tree.nodes:
-            if n.type == nodeType:
-                nodes.append(n)
-    return nodes
-
 def load(context,
          filepath,
          *,
@@ -903,8 +894,6 @@ def load(context,
         if global_matrix is None:
             global_matrix = mathutils.Matrix()
 
-        unique_materials = {}
-
         progress.enter_substeps(3, "Parsing GNS file...")
 
         map = Map(filepath, mapConfigIndex, dayNight, weather)
@@ -921,7 +910,6 @@ def load(context,
         # write out the palettes as images themselves
         # hook these up to the indexed image and no more need for the imagePerPal
         palImgs = [None] * len(map.colorPals)
-        #matPalNames = [None] * len(map.colorPals)
         for (i, pal) in enumerate(map.colorPals):
             palImgs[i] = bpy.data.images.new('GNS Pal Tex '+str(i), width=16, height=1)
             palImgs[i].pixels = [
@@ -929,17 +917,11 @@ def load(context,
                 for colorIndex in range(16)
                 for ch in pal[colorIndex].toTuple()
             ]
-            # do I want a material of this?  or just the image, then connect the image via nodes in the indexed material?
-            #matPalNames[i] = 'GNS Mat Pal '+str(i)
-            #makeTexMat(matPalNames[i], palImgs[i])
 
         # here's the indexed texture, though it's not attached to anything
         indexImg = bpy.data.images.new('GNS Tex Indexed', width=256, height=1024)
         indexImg.alpha_mode = 'NONE'
-        #indexImg.colorspace_settings.is_data = True
-        #indexImg.colorspace_settings.name = 'NONE' #docs
-        # ('Filmic Log', 'Filmic sRGB', 'Linear', 'Linear ACES', 'Linear ACEScg', 'Non-Color', 'Raw', 'sRGB', 'XYZ')
-        indexImg.colorspace_settings.name = 'Raw' #forums
+        indexImg.colorspace_settings.name = 'Raw'
         indexImg.pixels = [
             ch
             for row in map.textureIndexedData
@@ -952,7 +934,7 @@ def load(context,
             )
         ]
  
-
+        uniqueMaterials = {}
 
         # write out the indexed image with each 16 palettes applied to it
         imagePerPal = [None] * len(map.colorPals)
@@ -963,41 +945,41 @@ def load(context,
 
             # get image ...
             # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-            matWTex = unique_materials[name] = bpy.data.materials.new(name)
-            matWTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWTex, is_readonly=False)
-            matWTexWrap.use_nodes = True
+            mat = uniqueMaterials[name] = bpy.data.materials.new(name)
+            matWrap = node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=False)
+            matWrap.use_nodes = True
 
             # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
-            indexNode = matWTex.node_tree.nodes.new('ShaderNodeTexImage')
+            indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
             indexNode.image = indexImg
-            palNode = matWTex.node_tree.nodes.new('ShaderNodeTexImage')
+            indexNode.interpolation = 'Closest'
+            palNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
             palNode.image = palImgs[i]
-
-            bsdf = findNodesByType(matWTex, 'BSDF_PRINCIPLED')[0]
-            matWTex.node_tree.links.new(bsdf.inputs['Base Color'], palNode.outputs['Color'])
-            matWTex.node_tree.links.new(bsdf.inputs['Alpha'], palNode.outputs['Alpha'])
-            matWTex.node_tree.links.new(palNode.inputs['Vector'], indexNode.outputs['Color'])
+            palNode.interpolation = 'Closest'
+            
+            bsdf = mat.node_tree.nodes['Principled BSDF']
+            mat.node_tree.links.new(bsdf.inputs['Base Color'], palNode.outputs['Color'])
+            mat.node_tree.links.new(bsdf.inputs['Alpha'], palNode.outputs['Alpha'])
+            mat.node_tree.links.new(palNode.inputs['Vector'], indexNode.outputs['Color'])
             
             # setup transparency
             # link texture alpha channel to Principled BSDF material
             # https://blender.stackexchange.com/a/239948
-            matWTexWrap.ior = 1.
-            matWTexWrap.alpha = 1.
-            #matWTex.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
-            matWTex.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
+            matWrap.ior = 1.
+            matWrap.alpha = 1.
+            #mat.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
+            mat.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
 
             # default specular is 1, which is shiny, which is ugly
-            matWTexWrap.specular = 0.
-            matWTexWrap.specular_tint = 0.
-            matWTexWrap.roughness = 0.
+            matWrap.specular = 0.
+            matWrap.specular_tint = 0.
+            matWrap.roughness = 0.
 
-
-        # TODO set up Graph Editor for dynamically picking the palette
 
         ### make the material for untextured faces
 
         matWOTexName = 'GNS Material Untextured'
-        matWOTex = unique_materials[matWOTexName] = bpy.data.materials.new(matWOTexName)
+        matWOTex = uniqueMaterials[matWOTexName] = bpy.data.materials.new(matWOTexName)
         matWOTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWOTex, is_readonly=False)
         matWOTexWrap.use_nodes = True
         matWOTexWrap.specular = 0
@@ -1006,10 +988,10 @@ def load(context,
 
         ### make the mesh
 
-        material_mapping = {name: i for i, name in enumerate(unique_materials)}
-        materials = [None] * len(unique_materials)
+        material_mapping = {name: i for i, name in enumerate(uniqueMaterials)}
+        materials = [None] * len(uniqueMaterials)
         for name, index in material_mapping.items():
-            materials[index] = unique_materials[name]
+            materials[index] = uniqueMaterials[name]
 
         mesh = bpy.data.meshes.new(filename)
         for material in materials:
