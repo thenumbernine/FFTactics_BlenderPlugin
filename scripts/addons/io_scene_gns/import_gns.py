@@ -21,6 +21,7 @@ class MyStruct(LittleEndianStructure):
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
 
+# "Situation"? or file record or header or resource header or something else?
 class Situation(MyStruct):
     _pack_ = 1
     _fields_ = [
@@ -33,19 +34,19 @@ class Situation(MyStruct):
         ('weather', c_uint8, 3),
         ('isDay', c_uint8, 1),    # day vs night?
         
-        ('resourceFlag', c_uint8),  # always 1 for resources?
-        
+        ('resourceFlag', c_uint8),  # always 1?
         ('resourceType', c_uint8),
 
         # trails Situation if it isn't a RESOURCE_EOF
         # do I really need to break these into two separate reads?
         # I think GaneshaDx puts a threshold of 20 bytes ... meaning we shoudl always be able to access both structs...
         
-        ('fileSector', c_uint16),
-        ('lba', c_uint32),
-        ('size', c_uint32),
-        ('unused0A', c_uint32),
+        ('unknown6', c_uint16),
+        ('sector', c_uint32),
+        ('size', c_uint32),         # file size, rounded up to 2k block
+        ('unknownA', c_uint32),
     ]
+assert sizeof(Situation) == 20
 
 class MeshHeader(MyStruct):
     _pack_ = 1
@@ -262,7 +263,6 @@ class Resource(object):
         self.chunks = [''] * 49
         self.size = None
 
-    # check.
     def read(self, filepath):
         self.filepath = filepath
         self.size = os.path.getsize(self.filepath)
@@ -297,13 +297,11 @@ class Resource(object):
         data = bytes(self.toc)
         for chunk in self.chunks:
             data += chunk
-        print('Writing', self.filepath)
         dateTime = datetime.now()
-        print(dateTime)
-        old_size = self.size
+        oldSize = self.size
         self.size = len(data)
         countSectors = lambda size: (size >> 11) + (1 if size & ((1<<11)-1) else 0)
-        old_sectors = countSectors(old_size)
+        old_sectors = countSectors(oldSize)
         new_sectors = countSectors(self.size)
         if new_sectors > old_sectors:
             print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
@@ -364,7 +362,7 @@ RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
 RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
 RESOURCE_MESH_ALT = 0x30 # Used with many index combos. Usually a small file.
 # GaneshaDx: other stuff I guess
-RESOURCE_EOF = 0x31 # GaneshaDx calls this one "Padded"
+RESOURCE_EOF = 0x31 # GaneshaDx calls this one "Padded" ... as in file-padding?  as in EOF record?
 RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
 RESOURCE_UNKNOWN_TWIN_1 = 0x85
 RESOURCE_UNKNOWN_TWIN_2 = 0x86
@@ -1892,18 +1890,32 @@ class Map(object):
         self.situations = []
         self.items = {}
 
-    # check.  calls read()
     def read(self, gnspath):
         self.readGNS(gnspath)
         self.setSituation(0)
 
-        # what if there's more than 1?
-        # textureFilenames is set from situation ...
-        # how to handle multiple situations?
-        # map000 has no textures
-        # map051 and map105 have two textures (how are those extra textures referenced in the map file?)
-        # map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
+        """
+        what if there's more than 1?
+        textureFilenames is set from situation ...
+        how to handle multiple situations?
+        map000 has no textures
+        map051 and map105 have two textures (how are those extra textures referenced in the map file?)
+        map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
         #assert len(self.textureFilenames) == 1
+        
+        ex map001
+        has 19 dif tex (0x17)
+        has 1 mesh_init (0x2e)
+        has 1 mesh_repl (0x2f)
+        has 19 dif mesh_alt (0x30)
+        has 1 eof (0x31)
+
+        ex map002
+        has 20 dif texture (0x17) resources?
+        has 1 dif mesh_repl (0x2f)
+        has 19 dif mesh_alt (0x30)
+        has 1 eof (0x31)
+        """
         self.readTexture()
         self.resources.read(self.resourceFiles)
 
@@ -1911,6 +1923,10 @@ class Map(object):
 
         return self
 
+    # GaneshaDx here:
+    # iters thru whole file, reading Situation's as 20-bytes (or whatever remains)
+    #  filters out only the tex & mesh res.
+    # sort resources by sector
     def readGNS(self, filepath):
         mapNum = int(filepath[-7:-4])
         file = open(filepath, 'rb')
@@ -1918,6 +1934,7 @@ class Map(object):
         situations = {}
         for lineNo in range(0x7fffffff): # or infinity or whatever.  why can't python just count integers without importing from another library?
             sit = readStruct(file, Situation)
+            print('reading sit with sector', sit.sector, 'resourceType', sit.resourceType, 'resourceFlag', sit.resourceFlag)
             if sit.resourceFlag == 1 and sit.resourceType == RESOURCE_EOF:
                 break
             resFilePath = os.path.join(mapdir, gnslines[(mapNum, lineNo)])
@@ -1929,7 +1946,6 @@ class Map(object):
         self.situations = sorted(situations.keys())
         file.close()
 
-    # check.
     def setSituation(self, sitIndex):
         self.sitIndex = sitIndex % len(self.situations)
         self.textureFilenames = self.getTextureFiles(self.sitIndex)
@@ -2000,7 +2016,6 @@ class Map(object):
         file.close()
 
 
-    # check.
     def readFromChunks(self):
         data = None
         ofs = 0
