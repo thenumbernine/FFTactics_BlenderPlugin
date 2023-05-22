@@ -671,29 +671,63 @@ class MeshBlob(ResourceBlob):
         )
 
 class TexBlob(ResourceBlob):
+    width = 256
+    height = 1024
+    # can python do this?
+    #rowsize = width >> 1
     def __init__(self, record, filename, mapdir):
+        # maybe not?
+        self.rowsize = self.width >> 1
         super().__init__(record, filename, mapdir)
         data = self.readData()
 
         # expand the 8-bits into separate 4-bits into an image double array
         # this isn't grey, it's indexed into one of the 16 palettes.
         # TODO store this just [] instead of [][]
-        pix = (TwoNibbles * len(data)).from_buffer_copy(data)
-        self.textureIndexedData = [       # [colorIndex] in [0,15] integers
+        pix44 = (TwoNibbles * len(data)).from_buffer_copy(data)
+        # pix8 = [colorIndex] in [0,15] integers
+        # which is slower?
+        """
+        pix8 = [
             colorIndex
-            for y in range(1024)
-            for x in range(128)
-            for colorIndex in pix[x + y * 128].toTuple()
+            for y in range(self.height)
+            for x in range(self.rowsize)
+            for colorIndex in pix44[x + y * self.rowsize].toTuple()
+        ]
+        """
+        # vs
+        pix8 = [0] * (self.width * self.height)
+        dsti = 0
+        for srci in range(self.height * self.rowsize):
+            lohi = pix44[srci]
+            pix8[dsti] = lohi.lo
+            dsti += 1
+            pix8[dsti] = lohi.hi
+            dsti += 1
+
+        # here's the indexed texture, though it's not attached to anything
+        self.indexImg = bpy.data.images.new(self.filename + ' Tex Indexed', width=self.width, height=self.height)
+        self.indexImg.alpha_mode = 'NONE'
+        self.indexImg.colorspace_settings.name = 'Raw'
+        self.indexImg.pixels = [
+            ch
+            for colorIndex in pix8
+            for ch in (
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                1.
+            )
         ]
 
-    # TODO fixme or something
     def writeTexture(self):
+        pixRGBA = self.indexImg.pixels
         data = b''
-        for y in range(1024):
-            for x in range(128):
+        for y in range(self.height):
+            for x in range(self.rowsize):
                 data += bytes(TwoNibbles(
-                    self.textureIndexedData[0 + 2 * (x + 128 * y)],
-                    self.textureIndexedData[1 + 2 * (x + 128 * y)]
+                    int(16. * pixRGBA[0 + 4 * (0 + 2 * (x + self.rowsize * y))]),
+                    int(16. * pixRGBA[0 + 4 * (1 + 2 * (x + self.rowsize * y))])
                 ))
         assert len(self.textureFilenames) == 1
         file = open(self.textureFilenames[0], 'wb')
@@ -714,7 +748,7 @@ class Map(object):
             print("no texture...")
             raise "raise"
         res = self.texRess[0]
-        self.textureIndexedData = res.textureIndexedData
+        self.indexImg = res.indexImg
 
         # this is like an overlay filesystem right?
         # a unique (arrangement, day/night, weather) will have a unique texture & mesh resource
@@ -938,27 +972,12 @@ def load(context,
         # hook these up to the indexed image and no more need for the imagePerPal
         palImgs = [None] * len(map.colorPals)
         for (i, pal) in enumerate(map.colorPals):
-            palImgs[i] = bpy.data.images.new('GNS Pal Tex '+str(i), width=16, height=1)
+            palImgs[i] = bpy.data.images.new(filename + 'Pal Tex '+str(i), width=16, height=1)
             palImgs[i].pixels = [
                 ch
                 for colorIndex in range(16)
                 for ch in pal[colorIndex].toTuple()
             ]
-
-        # here's the indexed texture, though it's not attached to anything
-        indexImg = bpy.data.images.new('GNS Tex Indexed', width=256, height=1024)
-        indexImg.alpha_mode = 'NONE'
-        indexImg.colorspace_settings.name = 'Raw'
-        indexImg.pixels = [
-            ch
-            for colorIndex in map.textureIndexedData
-            for ch in (
-                (colorIndex+.5)/16.,
-                (colorIndex+.5)/16.,
-                (colorIndex+.5)/16.,
-                1.
-            )
-        ]
 
         uniqueMaterials = {}
 
@@ -982,7 +1001,7 @@ def load(context,
             palNode.location = (-300, 0)
 
             indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            indexNode.image = indexImg
+            indexNode.image = map.indexImg
             indexNode.interpolation = 'Closest'
             indexNode.location = (-600, 0)
 
@@ -1022,7 +1041,7 @@ def load(context,
         for name, index in material_mapping.items():
             materials[index] = uniqueMaterials[name]
 
-        mesh = bpy.data.meshes.new(filename)
+        mesh = bpy.data.meshes.new(filename + ' Mesh')
         for material in materials:
             mesh.materials.append(material)
 
@@ -1049,8 +1068,8 @@ def load(context,
 
                 if isTexd:
                     meshVtxTCs.append((
-                        (v.texcoord.x + .5) / 256.,
-                        (256 * s.texFace.page + v.texcoord.y + .5) / 1024.
+                        (v.texcoord.x + .5) / TexBlob.width,
+                        (256 * s.texFace.page + v.texcoord.y + .5) / TexBlob.height
                     ))
                     meshVtxNormals.append(v.normal.toTuple())
                 else:
@@ -1224,7 +1243,7 @@ def load(context,
         # directional lights
         # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
         for i in range(3):
-            lightName = 'GNS Light '+str(i)
+            lightName = filename + ' Light '+str(i)
             lightData = bpy.data.lights.new(name=lightName, type='SUN')
             lightData.energy = 20       # ?
             lightData.color = map.dirLightColors.ithToTuple(i)
@@ -1271,7 +1290,7 @@ def load(context,
         background.inputs[1].default_value = 5.
         """
         # but you can just do that once ... what if I want to load multiple map cfgs at a time?
-        lightName = 'GNS Light Ambient'
+        lightName = filename+' Ambient'
         lightData = bpy.data.lights.new(name=lightName, type='SUN')
         lightData.energy = 20       # ?
         lightData.color = map.ambientLightColor.toTuple()
@@ -1289,7 +1308,7 @@ def load(context,
 
         # setup bg mesh mat
 
-        bgMat = bpy.data.materials.new('GNS Bg Mat')
+        bgMat = bpy.data.materials.new(filename + ' Bg Mat')
         bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
         bgMatWrap.use_nodes = True
 
@@ -1327,7 +1346,7 @@ def load(context,
         # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
         #  or just make a background sphere ...
         # https://blender.stackexchange.com/questions/93298/create-a-uv-sphere-object-in-blender-from-python
-        bgmesh = bpy.data.meshes.new('GNS Backround')
+        bgmesh = bpy.data.meshes.new(filename + ' Bg')
         bgmesh.materials.append(bgMat)
         bgmeshObj = bpy.data.objects.new(bgmesh.name, bgmesh)
         # center 'y' is wayyy up ...
