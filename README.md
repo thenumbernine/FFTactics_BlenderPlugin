@@ -25,28 +25,27 @@ Click the checkbox and you should now find a new option under File -> Import:
 
 The mesh is importing.
 
-The 3 directional lights' colors are importing.
-The directions are still meh.
-
-The map ambient light is assigned to the world background color.
-
 The terrain tiles are imported and custom per-face attributes are stored.  These can be accessed from 'Geometry Nodes' -> 'Face' -> scroll right in list of face attributes to see all the extra custom ones.
 
+The 3 directional lights' colors are imported as sun lights.
+The directions are still meh.
+
+The map ambient light is imported as a sun light too, but I know sun light is directional, idk where to set ambient-light in materials in blender... 
+
+The background is imported as a sphere around the map, with gradient material.
+
 TODO:
-- I'm handling ambient via assigning it to the world background color.  is this a good thing?
+- Ambient is an extra sun light ... but sun is directional and ambient is not.  How should it be specified?
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
-- background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
-- - sphere, centered at the map origin, size is 20, smooth-shaded, flip normals, with material...
-- - ...material shader nodes: Geometry.Position -> Separate XYZ.Z -> Map Range From (5, -5) to (0, 1) -> Mix factor, with 'A' the top color and 'B' the bottom color -> Base Color
 - should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
 - if I'm writing a plugin for blender IO, why not also write a plugin for face-picking that pops up editing the different custom-face attributes?
 - preserve situations?  right now it's just reading the first texture from the first situation.
 - - instead it could just read in everything, multiple objects / layers / scenes / whatever per map configuration, read and write all at once instead of picking your configuration upon file load.
 - exporting.
 
-Design TODO 
+Design TODO
 - make a root obj of the meshObj/tmeshObj/lights
 - put meshObj under it with scale (1/28, 1/24, 1/28) so it is proportional to the terrain geom
 - put tmeshObj under it with no scale

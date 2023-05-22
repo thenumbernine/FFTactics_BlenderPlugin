@@ -14,7 +14,7 @@ from datetime import datetime
 from bpy_extras.io_utils import unpack_list
 from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
-
+from bpy_extras import node_shader_utils
 
 class FFTStruct(LittleEndianStructure):
     # why isn't there an easy way to do this?
@@ -271,16 +271,6 @@ class TwoNibbles(FFTStruct):
         ('hi', c_uint8, 4),
     ]
 
-# TODO use this for debug print for what mesh res blobs have what data ...
-chunkNames = {
-    0x10 : 'mesh',
-    0x2c : 'vis angles',
-    0x11 : 'color pals',
-    0x19 : 'lights',
-    0x1a : 'terrain',
-    0x1f : 'grey pals',
-}
-
 ################################ fft/map/gns.py ################################
 
 # GaneshaDx: texture resources:
@@ -363,7 +353,7 @@ class ResourceBlob(object):
         self.sector = None
         self.filename = filename
         self.filepath = os.path.join(mapdir, filename)
-   
+
     # read whole file as one blob
     def readData(self):
         file = open(self.filepath, 'rb')
@@ -371,24 +361,37 @@ class ResourceBlob(object):
         file.close()
         return data
 
+def countSectors(size):
+    return (size >> 11) + (1 if size & ((1<<11)-1) else 0)
+
 class MeshBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
         data = self.readData()
-        
+        self.numSectors = countSectors(len(data))
+
         numChunks = 49
+        chunkNames = {
+            0x10 : 'mesh',
+            0x2c : 'vis angles',
+            0x11 : 'color pals',
+            0x19 : 'lights',
+            0x1a : 'terrain',
+            0x1f : 'grey pals',
+        }
+
         self.chunks = [None] * numChunks
 
-        header = (c_uint32 * numChunks).from_buffer_copy(data)
+        self.header = (c_uint32 * numChunks).from_buffer_copy(data)
 
         self.chunks = [None] * numChunks
-        for i, entry in enumerate(header):
-            begin = header[i]
+        for i, entry in enumerate(self.header):
+            begin = self.header[i]
             if begin:
                 end = None
                 for j in range(i + 1, numChunks):
-                    if header[j]:
-                        end = header[j]
+                    if self.header[j]:
+                        end = self.header[j]
                         break
                 if end == None:
                     end = len(data)
@@ -540,33 +543,132 @@ class MeshBlob(ResourceBlob):
                 ))
 
     # old write code ... but TODO only write what you have or something i guess idk
-    def write(self):
-        offset = sizeof(self.toc)
+    def writeHeader(self):
+        offset = sizeof(self.header)
         for (i, chunk) in enumerate(self.chunks):
             if chunk:
-                self.toc[i] = offset
+                self.header[i] = offset
                 offset += len(chunk)
             else:
-                self.toc[i] = 0
-        data = bytes(self.toc)
+                self.header[i] = 0
+        data = bytes(self.header)
         for chunk in self.chunks:
             data += chunk
-        dateTime = datetime.now()
-        oldSize = self.size
-        self.size = len(data)
-        countSectors = lambda size: (size >> 11) + (1 if size & ((1<<11)-1) else 0)
-        old_sectors = countSectors(oldSize)
-        new_sectors = countSectors(self.size)
-        if new_sectors > old_sectors:
-            print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
-        elif new_sectors < old_sectors:
-            print('Note: File has shrunk from %u sectors to %u sectors.' % (old_sectors, new_sectors))
-        self.file = open(self.filepath, 'wb')
-        self.file.write(data)
-        self.file.close()
+        newNumSectors = countSectors(len(data))
+        if newNumSectors > self.numSectors:
+            print('WARNING: File has grown from %u sectors to %u sectors!' % (self.numSectors, newNumSectors))
+        elif newNumSectors < self.numSectors:
+            print('Note: File has shrunk from %u sectors to %u sectors.' % (self.numSectors, newNumSectors))
+        self.numSectors = newNumSectors
+        file = open(self.filepath, 'wb')
+        file.write(data)
+        file.close()
 
+    def writeRes(self):
+        self.writePolygons()
+        self.writeVisAngles()
+        self.writeColorPalettes()
+        self.writeGrayPalettes()
+        self.writeDirLights()
+        self.writeTerrain()
 
+    def writePolygons(self):
+        data = bytes(self.meshHdr)
+        for polygon in self.polygons():
+            for v in polygon.vtxs:
+                data += bytes(v.pos)
+        for polygon in self.triTexs + self.quadTexs:
+            for v in polygon.vtxs:
+                data += bytes(v.normal)
+        for polygon in self.triTexs + self.quadTexs:
+            if polygon.texFace.unk3 == 0:
+                polygon.texFace.unk3 = 120
+                polygon.texFace.unk6_2 = 3
+            data += bytes(polygon.texFace)
+        for polygon in self.triUntexs + self.quadUntexs:
+            data += bytes(polygon.unknown)
+        for polygon in self.triTexs + self.quadTexs:
+            data += bytes(polygon.tilePos)
+        self.chunks[0x10] = data
 
+    def writeVisAngles(self):
+        triTexVisAngles = b''
+        for polygon in self.triTexs:
+            triTexVisAngles += bytes(polygon.visAngles)
+        triTexVisAngles += b'\0' * (1024 - len(triTexVisAngles))
+
+        quadTexVisAngles = b''
+        for polygon in self.quadTexs:
+            quadTexVisAngles += bytes(polygon.visAngles)
+        quadTexVisAngles += b'\0' * (1536 - len(quadTexVisAngles))
+
+        triUntexVisAngles = b''
+        for polygon in self.triUntexs:
+            triUntexVisAngles += bytes(polygon.visAngles)
+        triUntexVisAngles += b'\0' * (128 - len(triUntexVisAngles))
+
+        quadUntexVisAngles = b''
+        for polygon in self.quadUntexs:
+            quadUntexVisAngles += bytes(polygon.visAngles)
+        quadUntexVisAngles += b'\0' * (512 - len(quadUntexVisAngles))
+
+        ofs = 0x380
+        olddata = self.chunks[0x2c]
+        self.chunks[0x2c] = (
+              olddata[:ofs]
+            + triTexVisAngles
+            + quadTexVisAngles
+            + triUntexVisAngles
+            + quadUntexVisAngles
+            + olddata[ofs + len(data):]
+        )
+
+    def writeColorPalettes(self):
+        data = b''
+        for palette in self.colorPals:
+            data += bytes(palette)
+        self.chunks[0x11] = data
+
+    def writeGrayPalettes(self):
+        data = b''
+        for palette in self.grayPals:
+            data += bytes(palette)
+        self.chunks[0x11] = data
+
+    def writeDirLights(self):
+        data = (
+              bytes(self.dirLightColors)
+            + bytes(self.dirLightDirs)
+            + bytes(self.ambientLightColors)
+            + bytes(self.backgroundColors)
+        )
+
+        ofs = 0
+        olddata = self.chunks[0x19]
+        self.chunks[0x19] = (
+            olddata[:ofs]
+            + data
+            + olddata[ofs + len(data):]
+        )
+
+    def writeTerrain(self):
+        assert len(self.terrainTiles) == 2
+        self.terrainSize[0] = len(self.terrainTiles.tiles[0][0])
+        self.terrainSize[1] = len(self.terrainTiles.tiles[0])
+        data = bytes(self.terrainSize)
+        for level in self.terrainTiles:
+            for row in level:
+                for tile in row:
+                    data += bytes(tile)
+            # Skip to second level of terrain data
+            data += b'\0' * (sizeof(TerrainTile) * (256 - sizeX * sizeZ))
+        ofs = 0
+        olddata = self.chunks[0x1a]
+        self.chunks[0x1a] = (
+            olddata[:ofs]
+            + data
+            + olddata[ofs + len(data):]
+        )
 
 class TexBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
@@ -586,40 +688,71 @@ class TexBlob(ResourceBlob):
                 dstrow.append(pair.hi)
             self.textureIndexedData.append(dstrow)
 
+    # TODO fixme or something 
+    def writeTexture(self):
+        data = b''
+        for y in range(1024):
+            for x in range(128):
+                lo = self.textureIndexedData[y][x*2]
+                hi = self.textureIndexedData[y][x*2 + 1]
+                data += bytes(TwoNibbles(lo, hi))
+        assert len(self.textureFilenames) == 1
+        file = open(self.textureFilenames[0], 'wb')
+        file.write(data)
+        file.close()
+
+
 class Map(object):
     def __init__(self, filepath, mapConfigIndex, dayNight, weather):
         self.readGNS(filepath)
 
         self.setConfig(mapConfigIndex, dayNight, weather)
 
-        """
-        what if there's more than 1 texture?
-        map000 has no textures
-        map051 and map105 have two textures (how are those extra textures referenced in the map file? tex face page?)
-        map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
-        #assert len(self.textureFilenames) == 1
+        # copy texture fields
+        # TODO copy refs to blender objects associated with these fields
 
-        ex map001
-        has 19 dif tex (0x17)
-        has 1 mesh_init (0x2e)
-        has 1 mesh_repl (0x2f)
-        has 19 dif mesh_alt (0x30)
-        has 1 eof (0x31)
-
-        ex map002
-        has 20 dif texture (0x17) resources?
-        has 1 dif mesh_repl (0x2f)
-        has 19 dif mesh_alt (0x30)
-        has 1 eof (0x31)
-        """
-        self.readTexture()
+        if len(self.texRess) == 0:
+            print("no texture...")
+            raise "raise"
+        res = self.texRess[0]
+        self.textureData = res.textureData
+        self.textureIndexedData = res.textureIndexedData
 
         # this is like an overlay filesystem right?
         # a unique (arrangement, day/night, weather) will have a unique texture & mesh resource
         # (also the base mesh-resource?)
         # and the multiple mesh-resources each have a list of offsets that, when all superimposed, give the level its complete set of offsets into resoruces (mesh, lights, terrain, etc)
         # ... if the "mesh resource" includes mesh, terrain, lights ... maybe pick a better name for it? like "level resource" ?
-        self.readFromChunks()
+        def setResField(field):
+            for res in self.meshRess:
+                if hasattr(res, field):
+                    value = getattr(res, field)
+                    # TODO should I ever have None be valid?
+                    if value != None:
+                        setattr(self, field, value)
+                        return
+        for field in [
+            # 0x11
+            'colorPals',
+            # 0x1f
+            'grayPals',
+            # 0x19
+            'dirLightColors',
+            'dirLightDirs',
+            'ambientLightColor',
+            'backgroundColors',
+            # 0x1a
+            'terrainSize',
+            'terrainTiles',
+            # aux
+            'bbox',
+            'center',
+            'triTexs',
+            'quadTexs',
+            'triUntexs',
+            'quadUntexs',
+        ]:
+            setResField(field)
 
     # GaneshaDx here:
     # iters thru whole file, reading GNSRecord's as 20-bytes (or whatever remains)
@@ -640,7 +773,7 @@ class Map(object):
             # file.read(numBytes) will fail gracefully
             # but I think ctype.from_buffer_copy won't ...
             sdata = file.read(sizeof(GNSRecord))
-            sdata = sdata + b'\x00' * (sizeof(GNSRecord) - len(sdata)) # pad?
+            sdata = sdata + b'\0' * (sizeof(GNSRecord) - len(sdata)) # pad?
             r = GNSRecord.from_buffer_copy(sdata)
             if r.resourceFlag == 1 and r.resourceType == RESOURCE_EOF:
                 break
@@ -657,7 +790,7 @@ class Map(object):
         for fn in os.listdir(self.mapdir):
             if fn != filename and os.path.splitext(fn)[0] == namesuffix:
                 allResFilenames.append(fn)
-        
+
         # sort by filename suffix
         allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
         assert len(allSectors) == len(allResFilenames)
@@ -666,7 +799,7 @@ class Map(object):
         self.filenameForSector = {}
         for (sector, filename) in zip(allSectors, allResFilenames):
             self.filenameForSector[sector] = filename
-        
+
         #print(allSectors)
         #print(allRes)
 
@@ -704,12 +837,34 @@ class Map(object):
             print("sorry there's no map states for this map...")
             raise "raise"
 
-    
+
     # TODO don't set upon init
     # instead cycle thru *all* configs
     # and make a new scene/group/whatever for each
     # reuse blender objs <-> fft resources as you go
     def setConfig(self, mapConfigIndex, dayNight, weather):
+        
+        """
+        what if there's more than 1 texture?
+        map000 has no textures
+        map051 and map105 have two textures (how are those extra textures referenced in the map file? tex face page?)
+        map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
+        #assert len(self.textureFilenames) == 1
+
+        ex map001
+        has 19 dif tex (0x17)
+        has 1 mesh_init (0x2e)
+        has 1 mesh_repl (0x2f)
+        has 19 dif mesh_alt (0x30)
+        has 1 eof (0x31)
+
+        ex map002
+        has 20 dif texture (0x17) resources?
+        has 1 dif mesh_repl (0x2f)
+        has 19 dif mesh_alt (0x30)
+        has 1 eof (0x31)
+        """
+
         print("setting config", mapConfigIndex, dayNight, weather)
         # now pick one ...
         # or somehow let the user decide which one to pick?
@@ -740,163 +895,6 @@ class Map(object):
         print('meshFilenames', list(map(getPathForRes, self.meshRess)))
         print('textureFilenames', list(map(getPathForRes, self.texRess)))
 
-    def readTexture(self):
-        if len(self.texRess) == 0:
-            print("no texture...")
-            raise "raise"
-        res = self.texRess[0]
-        self.textureData = res.textureData
-        self.textureIndexedData = res.textureIndexedData
-
-    # TODO move this to TexBlob
-    def writeTexture(self):
-        data = ''
-        for y in range(1024):
-            for x in range(128):
-                lo = self.textureIndexedData[y][x*2]
-                hi = self.textureIndexedData[y][x*2 + 1]
-                data += bytes(TwoNibbles(lo, hi))
-        assert len(self.textureFilenames) == 1
-        file = open(self.textureFilenames[0], 'wb')
-        file.write(data)
-        file.close()
-
-    def readFromChunks(self):
-        def getResField(field):
-            for res in self.meshRess:
-                if hasattr(res, field):
-                    value = getattr(res, field)
-                    # TODO should I ever have None be valid?
-                    if value != None:
-                        return value
-        for field in [
-            # 0x11
-            'colorPals',
-            # 0x1f
-            'grayPals',
-            # 0x19 
-            'dirLightColors',
-            'dirLightDirs',
-            'ambientLightColor',
-            'backgroundColors',
-            # 0x1a
-            'terrainSize',
-            'terrainTiles',
-            # aux
-            'bbox',
-            'center',
-            'triTexs',
-            'quadTexs',
-            'triUntexs',
-            'quadUntexs',
-        ]:
-            setattr(self, field, getResField(field))
-
-    def write(self):
-        # TODO move to MeshBlob
-        self.writePolygons()
-        self.writeVisAngles()
-        self.writeColorPalettes()
-        self.writeDirLights()
-        self.writeTerrain()
-
-        # TODO move to TexBlob
-        self.writeTexture()
-
-    def writePolygons(self):
-        data = bytes(self.meshHdr)
-        for polygon in self.polygons():
-            for v in polygon.vtxs:
-                data += bytes(v.pos)
-        for polygon in self.triTexs + self.quadTexs:
-            for v in polygon.vtxs:
-                data += bytes(v.normal)
-        for polygon in self.triTexs + self.quadTexs:
-            if polygon.texFace.unk3 == 0:
-                polygon.texFace.unk3 = 120
-                polygon.texFace.unk6_2 = 3
-            data += bytes(polygon.texFace)
-        for polygon in self.triUntexs + self.quadUntexs:
-            data += bytes(polygon.unknown)
-        for polygon in self.triTexs + self.quadTexs:
-            data += bytes(polygon.tilePos)
-        self.chunks[0x10].chunks[0x10] = data
-
-    def writeVisAngles(self):
-        triTexVisAngles = ''
-        for polygon in self.triTexs:
-            triTexVisAngles += bytes(polygon.visAngles)
-        triTexVisAngles += '\x00' * (1024 - len(triTexVisAngles))
-
-        quadTexVisAngles = ''
-        for polygon in self.quadTexs:
-            quadTexVisAngles += bytes(polygon.visAngles)
-        quadTexVisAngles += '\x00' * (1536 - len(quadTexVisAngles))
-
-        triUntexVisAngles = ''
-        for polygon in self.triUntexs:
-            triUntexVisAngles += bytes(polygon.visAngles)
-        triUntexVisAngles += '\x00' * (128 - len(triUntexVisAngles))
-
-        quadUntexVisAngles = ''
-        for polygon in self.quadUntexs:
-            quadUntexVisAngles += bytes(polygon.visAngles)
-        quadUntexVisAngles += '\x00' * (512 - len(quadUntexVisAngles))
-
-        ofs = 0x380
-        olddata = self.chunks[0x2c].chunks[0x2c]
-        self.chunks[0x2c].chunks[0x2c] = (
-              olddata[:ofs]
-            + triTexVisAngles
-            + quadTexVisAngles
-            + triUntexVisAngles
-            + quadUntexVisAngles
-            + olddata[ofs + len(data):]
-        )
-
-    def writeColorPalettes(self):
-        data = ''
-        for palette in self.colorPals:
-            data += bytes(palette)
-        self.chunks[0x11].chunks[0x11] = data
-
-    # writeGrayPalettes too?  or nah?
-
-    def writeDirLights(self):
-        data = (
-              bytes(self.dirLightColors)
-            + bytes(self.dirLightDirs)
-            + bytes(self.ambientLightColors)
-            + bytes(self.backgroundColors)
-        )
-
-        ofs = 0
-        olddata = self.chunks[0x19].chunks[0x19]
-        self.chunks[0x19].chunks[0x19] = (
-            olddata[:ofs]
-            + data
-            + olddata[ofs + len(data):]
-        )
-
-    def writeTerrain(self):
-        assert len(self.terrainTiles) == 2
-        self.terrainSize[0] = len(self.terrainTiles.tiles[0][0])
-        self.terrainSize[1] = len(self.terrainTiles.tiles[0])
-        data = bytes(self.terrainSize)
-        for level in self.terrainTiles:
-            for row in level:
-                for tile in row:
-                    data += bytes(tile)
-            # Skip to second level of terrain data
-            data += '\x00' * (sizeof(TerrainTile) * (256 - sizeX * sizeZ))
-        ofs = 0
-        olddata = self.chunks[0x1a].chunks[0x1a]
-        self.chunks[0x1a].chunks[0x1a] = (
-            olddata[:ofs]
-            + data
-            + olddata[ofs + len(data):]
-        )
-
     def polygons(self):
         return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
 
@@ -915,7 +913,6 @@ def load(context,
          weather=0
          ):
     with ProgressReport(context.window_manager) as progress:
-        from bpy_extras import node_shader_utils
 
         progress.enter_substeps(1, "Importing GNS %r..." % filepath)
 
@@ -934,6 +931,8 @@ def load(context,
 
         newObjects = []  # put new objects here
 
+        view_layer = context.view_layer
+        collection = view_layer.active_layer_collection.collection
 
         ### make the material for textured faces
 
@@ -1263,14 +1262,63 @@ def load(context,
             # best answer yet: https://blender.stackexchange.com/a/169424
             newObjects.append(lightObj)
 
+
         # ambient light?  in blender?
         # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
         # seems the most common way is ...
         # ... overriding the world background
+        """
         world = bpy.data.worlds['World']
         background = world.node_tree.nodes['Background']
         background.inputs[0].default_value[:3] = map.ambientLightColor.toTuple()
         background.inputs[1].default_value = 5.
+        """
+        # but you can just do that once ... what if I want to load multiple map cfgs at a time?
+        lightName = 'GNS Light Ambient'
+        lightData = bpy.data.lights.new(name=lightName, type='SUN')
+        lightData.energy = 20       # ?
+        lightData.color = map.ambientLightColor.toTuple()
+        lightData.angle = math.pi
+        lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
+        lightObj.matrix_world = global_matrix
+        lightPos = (
+            map.bbox[0][0] / global_scale_x + 3,
+            map.bbox[0][2] / global_scale_y,
+            -map.bbox[0][1] / global_scale_z
+        )
+        lightObj.location = lightPos[0], lightPos[1], lightPos[2]
+        newObjects.append(lightObj)
+
+
+        # setup bg mesh mat
+        
+        bgMat = bpy.data.materials.new('GNS Bg Mat')
+        bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
+        bgMatWrap.use_nodes = True
+        
+        bsdf = bgMat.node_tree.nodes['Principled BSDF']
+        bgMixNode = bgMat.node_tree.nodes.new('ShaderNodeMixRGB')
+        bgMixNode.location = (-200, 0)
+        bgMixNode.inputs[1].default_value[:3] = map.backgroundColors[0].toTuple()
+        bgMixNode.inputs[2].default_value[:3] = map.backgroundColors[1].toTuple()
+        bgMat.node_tree.links.new(bsdf.inputs['Base Color'], bgMixNode.outputs[0])
+        
+        bgMapRangeNode = bgMat.node_tree.nodes.new('ShaderNodeMapRange')
+        bgMapRangeNode.location = (-400, 0)
+        bgMapRangeNode.inputs['From Min'].default_value = 20.
+        bgMapRangeNode.inputs['From Max'].default_value = -20.
+        bgMapRangeNode.inputs['To Min'].default_value = 0.
+        bgMapRangeNode.inputs['To Max'].default_value = 1.
+        bgMat.node_tree.links.new(bgMixNode.inputs['Fac'], bgMapRangeNode.outputs[0])
+
+        bgSepNode = bgMat.node_tree.nodes.new('ShaderNodeSeparateXYZ')
+        bgSepNode.location = (-600, 0)
+        bgMat.node_tree.links.new(bgMapRangeNode.inputs['Value'], bgSepNode.outputs['Z'])
+        
+        bgGeomNode = bgMat.node_tree.nodes.new('ShaderNodeNewGeometry')
+        bgGeomNode.location = (-800, 0)
+        bgMat.node_tree.links.new(bgSepNode.inputs['Vector'], bgGeomNode.outputs['Position'])
+
 
         # ... but the most common way of doing a skybox in blender is ...
         # ... overriding the world background
@@ -1280,21 +1328,47 @@ def load(context,
         #  why does alpha not work when alpha-clipping or alpha-blending is enabled?
         #  and why did the goblin turn on the stove?
         # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
+        #  or just make a background sphere ...
+        # https://blender.stackexchange.com/questions/93298/create-a-uv-sphere-object-in-blender-from-python
+        bgmesh = bpy.data.meshes.new('GNS Backround')
+        bgmesh.materials.append(bgMat)
+        bgmeshObj = bpy.data.objects.new(bgmesh.name, bgmesh)
+        # center 'y' is wayyy up ...
+        #bgmeshObj.location = map.center[0], map.center[1], map.center[2]
+        bgmeshObj.location = 5, 5, 5
+        bgmeshObj.scale = 20., 20., 20.
 
+        # make the mesh a sphere and smooth
+        # do this before objects.link ... ?
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=5)
+        # normal_flip not working?
+        for f in bm.faces:
+            f.normal_flip()
+        bm.normal_update()
+        
+        bm.to_mesh(bgmeshObj.data)
+        bm.free()
+
+        # create-object for the bmesh
+        collection.objects.link(bgmeshObj)
+        bgmeshObj.select_set(True)
+
+        #bpy.ops.object.modifier_add(type='SUBSURF')
+        bpy.ops.object.shade_smooth()
+
+        # flip normals ... ?
+        #bpy.ops.object.editmode_toggle()
+        #bpy.ops.mesh.select_all(action='SELECT')
+        #bpy.ops.mesh.flip_normals() 
+        #bpy.ops.object.mode_set()
+        # view_layer.objects.active = bgmeshObj
+        
         ### Create new objects
-        view_layer = context.view_layer
-        collection = view_layer.active_layer_collection.collection
+        # TODO this once at a time?
         for obj in newObjects:
             collection.objects.link(obj)
             obj.select_set(True)
-
-            # apply up/fwd transform
-            # setting this override any previous location / rotation_euler set
-            # how can we just apply this transform to the previous transform?
-            # maybe https://blender.stackexchange.com/questions/27667/incorrect-matrix-world-after-transformation ?
-            # ... says you gotta call view_layer.update() after setting location / rotation_euler / scale ...
-            # ... sooo ... what order to set all the tranforms ...
-            #obj.matrix_world = global_matrix
 
         view_layer.update()
 
