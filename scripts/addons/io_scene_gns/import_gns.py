@@ -463,21 +463,24 @@ class MeshBlob(ResourceBlob):
             # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
             # done reading chunk 0x2c
 
+        # TODO put this method in sub-obj of chunk11
         # reading chunk 0x11
         if setChunk(0x11):
+            numColorPals = 16
+            numColorsPerPal = 16
             colorPals = []
-            for i in range(16):
-                colorPals.append(read(RGBA5551 * 16))
+            for i in range(numColorPals):
+                colorPals.append(read(RGBA5551 * numColorsPerPal))
             # done reading chunk 0x11
 
             # write out the palettes as images themselves
             self.colorPalImgs = [None] * len(colorPals)
             for (i, pal) in enumerate(colorPals):
-                self.colorPalImgs[i] = bpy.data.images.new(self.filename + 'Pal Tex '+str(i), width=16, height=1)
+                self.colorPalImgs[i] = bpy.data.images.new(self.filename + 'Pal Tex '+str(i), width=numColorsPerPal, height=1)
                 self.colorPalImgs[i].pixels = [
                     ch
-                    for colorIndex in range(16)
-                    for ch in pal[colorIndex].toTuple()
+                    for color in pal
+                    for ch in color.toTuple()
                 ]
 
         # reading chunk 0x1f
@@ -647,12 +650,13 @@ class MeshBlob(ResourceBlob):
             + olddata[ofs + len(data):]
         )
 
+    # TODO put this method in sub-obj of chunk11
     def writeColorPalettes(self):
         data = b''
         if hasattr(self, 'colorPalImgs'):
             for img in self.colorPalImgs:
                 pixRGBA = img.pixels
-                for i in range(16):
+                for i in range(len(pixRGBA)/4):
                     data += bytes(RGBA5551.fromRGBA(
                         pixRGBA[0 + 4 * i],
                         pixRGBA[1 + 4 * i],
@@ -1000,11 +1004,10 @@ def load(context,
 
         ### make the material for textured faces
 
-
-
         uniqueMaterials = {}
 
-        # write out the indexed image with each 16 palettes applied to it
+        # Write out the indexed image with each 16 palettes applied to it
+        # This can only be done once the texture and color-palette MeshBlob have been read in
         matTexNamePerPal = [None] * len(map.colorPalImgs)
         for (i, pal) in enumerate(map.colorPalImgs):
             name ='GNS Mat Tex w Pal '+str(i)
