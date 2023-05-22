@@ -271,70 +271,7 @@ class TwoNibbles(FFTStruct):
         ('hi', c_uint8, 4),
     ]
 
-def readStruct(file, struct):
-    return struct.from_buffer_copy(file.read(sizeof(struct)))
-
-################################ fft/map/resource.py ################################
-
-# this holds the TOC list of int32 offsets per ... resource?
-# why is there GaneshaResource.chunks and GaneshaResources.chunks?  when they are assigned the same thing?
-class GaneshaResource(object):
-    def __init__(self):
-        super(GaneshaResource, self).__init__()
-        self.filepath = None
-        self.file = None
-        self.chunks = [''] * 49
-        self.size = None
-
-    def read(self, filepath):
-        self.filepath = filepath
-        self.size = os.path.getsize(self.filepath)
-        self.file = open(self.filepath, 'rb')
-        self.toc = readStruct(self.file, c_uint32 * 49)
-        self.file.seek(0)
-        data = self.file.read()
-        self.file.close()
-        for i, entry in enumerate(self.toc):
-            begin = self.toc[i]
-            if begin == 0:
-                #print(filepath, i, 'resource offset is zero ... skipping')
-                continue
-            end = None
-            for j in range(i + 1, len(self.toc)):
-                if self.toc[j]:
-                    end = self.toc[j]
-                    break
-            if end == None:
-                end = self.size
-            self.chunks[i] = data[begin:end]
-            #print(i, self.filepath, begin, end)
-
-    def write(self):
-        offset = sizeof(self.toc)
-        for (i, chunk) in enumerate(self.chunks):
-            if chunk:
-                self.toc[i] = offset
-                offset += len(chunk)
-            else:
-                self.toc[i] = 0
-        data = bytes(self.toc)
-        for chunk in self.chunks:
-            data += chunk
-        dateTime = datetime.now()
-        oldSize = self.size
-        self.size = len(data)
-        countSectors = lambda size: (size >> 11) + (1 if size & ((1<<11)-1) else 0)
-        old_sectors = countSectors(oldSize)
-        new_sectors = countSectors(self.size)
-        if new_sectors > old_sectors:
-            print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
-        elif new_sectors < old_sectors:
-            print('Note: File has shrunk from %u sectors to %u sectors.' % (old_sectors, new_sectors))
-        self.file = open(self.filepath, 'wb')
-        self.file.write(data)
-        self.file.close()
-
-
+# TODO use this for debug print for what mesh res blobs have what data ...
 chunkNames = {
     0x10 : 'mesh',
     0x2c : 'vis angles',
@@ -343,28 +280,6 @@ chunkNames = {
     0x1a : 'terrain',
     0x1f : 'grey pals',
 }
-
-class GaneshaResources(object):
-    def __init__(self):
-        super(GaneshaResources, self).__init__()
-        self.chunks = [None] * 49
-
-    def read(self, files):
-        for filepath in files:
-            print('finding chunks in file path', filepath)
-            resource = GaneshaResource()
-            resource.read(filepath)
-            for i in range(49):
-                if resource.chunks[i]:
-                    print('setting chunk '+str(i)+((' '+chunkNames[i]) if i in chunkNames else '')+' to '+filepath)
-                    self.chunks[i] = resource
-
-    def write(self):
-        written = []
-        for chunk in self.chunks:
-            if chunk and chunk.filepath not in written:
-                chunk.write()
-                written.append(chunk.filepath)
 
 ################################ fft/map/gns.py ################################
 
@@ -448,7 +363,8 @@ class ResourceBlob(object):
         self.sector = None
         self.filename = filename
         self.filepath = os.path.join(mapdir, filename)
-    
+   
+    # read whole file as one blob
     def readData(self):
         file = open(self.filepath, 'rb')
         data = file.read()
@@ -623,6 +539,35 @@ class MeshBlob(ResourceBlob):
                     quadUntexVisAngles[i]
                 ))
 
+    # old write code ... but TODO only write what you have or something i guess idk
+    def write(self):
+        offset = sizeof(self.toc)
+        for (i, chunk) in enumerate(self.chunks):
+            if chunk:
+                self.toc[i] = offset
+                offset += len(chunk)
+            else:
+                self.toc[i] = 0
+        data = bytes(self.toc)
+        for chunk in self.chunks:
+            data += chunk
+        dateTime = datetime.now()
+        oldSize = self.size
+        self.size = len(data)
+        countSectors = lambda size: (size >> 11) + (1 if size & ((1<<11)-1) else 0)
+        old_sectors = countSectors(oldSize)
+        new_sectors = countSectors(self.size)
+        if new_sectors > old_sectors:
+            print('WARNING: File has grown from %u sectors to %u sectors!' % (old_sectors, new_sectors))
+        elif new_sectors < old_sectors:
+            print('Note: File has shrunk from %u sectors to %u sectors.' % (old_sectors, new_sectors))
+        self.file = open(self.filepath, 'wb')
+        self.file.write(data)
+        self.file.close()
+
+
+
+
 class TexBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
@@ -688,6 +633,8 @@ class Map(object):
         file = open(filepath, 'rb')
         allRecords = []
         while True:
+            #def readStruct(file, struct):
+            #    return struct.from_buffer_copy(file.read(sizeof(struct)))
             #r = readStruct(file, GNSRecord)
             # but it could be incomplete right?
             # file.read(numBytes) will fail gracefully
