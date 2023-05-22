@@ -16,14 +16,14 @@ from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 
 
-class MyStruct(LittleEndianStructure):
+class FFTStruct(LittleEndianStructure):
     # why isn't there an easy way to do this?
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
 
 # list of these in the GNS file that direct us to other resources
 # what to call it? resource? resource header?
-class GNSRecord(MyStruct):
+class GNSRecord(FFTStruct):
     _pack_ = 1
     _fields_ = [
         # GaneshaDx looks at only the low byte here,
@@ -72,7 +72,7 @@ class GNSRecord(MyStruct):
 
 assert sizeof(GNSRecord) == 20
 
-class MeshHeader(MyStruct):
+class MeshHeader(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('numTriTex', c_uint16),
@@ -81,7 +81,7 @@ class MeshHeader(MyStruct):
         ('numQuadUntex', c_uint16),
     ]
 
-class VertexPos(MyStruct):
+class VertexPos(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('x', c_int16),
@@ -89,7 +89,7 @@ class VertexPos(MyStruct):
         ('z', c_int16),
     ]
 
-class Normal(MyStruct):
+class Normal(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('x', c_int16),
@@ -104,7 +104,7 @@ class Normal(MyStruct):
             self.z / 4096.,
         )
 
-class TexCoord(MyStruct):
+class TexCoord(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('x', c_uint8),
@@ -113,7 +113,7 @@ class TexCoord(MyStruct):
 assert sizeof(TexCoord) == 2
 
 # textured-triangle face information
-class TriTexFace(MyStruct):
+class TriTexFace(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('uv0', TexCoord),
@@ -130,7 +130,7 @@ assert sizeof(TriTexFace) == 10
 
 # textured-quad face information
 # matches TriTexFace
-class QuadTexFace(MyStruct):
+class QuadTexFace(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('uv0', TexCoord),
@@ -147,7 +147,7 @@ class QuadTexFace(MyStruct):
 assert sizeof(QuadTexFace) == 12
 
 # tile in-game position, stored per-textured-face
-class TilePos(MyStruct):
+class TilePos(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('x', c_uint8),
@@ -156,7 +156,7 @@ class TilePos(MyStruct):
     ]
 assert sizeof(TilePos) == 2
 
-class RGBA5551(MyStruct):
+class RGBA5551(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('r', c_uint16, 5),
@@ -177,9 +177,9 @@ class RGBA5551(MyStruct):
         return (r,g,b,a)
 
 # hmm can I inerit from c_uint16 and override some behavior or something?
-#class LightColorChannel(MyStruct):
+#class LightColorChannel(FFTStruct):
 
-class LightColors(MyStruct):
+class LightColors(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('r', c_uint16 * 3),
@@ -196,7 +196,7 @@ class LightColors(MyStruct):
             (self.b[i] & mask) / float(mask)
         )
 
-class RGB888(MyStruct):
+class RGB888(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('r', c_uint8),
@@ -234,7 +234,7 @@ and then 4 more ... only 1 needed for tesselation edge orientation
 or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets of 2 bits, and none of the 2 bits are 11
 
 '''
-class TerrainTile(MyStruct):
+class TerrainTile(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('surfaceType', c_uint8, 6),
@@ -264,7 +264,7 @@ assert sizeof(TerrainTile) == 8
 
 # can python ctypes do arrays-of-bitfields?
 # ... can C structs? nope?
-class TwoNibbles(MyStruct):
+class TwoNibbles(FFTStruct):
     _pack_ = 1
     _fields_ = [
         ('lo', c_uint8, 4),
@@ -277,10 +277,10 @@ def readStruct(file, struct):
 ################################ fft/map/resource.py ################################
 
 # this holds the TOC list of int32 offsets per ... resource?
-# why is there Resource.chunks and Resources.chunks?  when they are assigned the same thing?
-class Resource(object):
+# why is there GaneshaResource.chunks and GaneshaResources.chunks?  when they are assigned the same thing?
+class GaneshaResource(object):
     def __init__(self):
-        super(Resource, self).__init__()
+        super(GaneshaResource, self).__init__()
         self.filepath = None
         self.file = None
         self.chunks = [''] * 49
@@ -344,15 +344,15 @@ chunkNames = {
     0x1f : 'grey pals',
 }
 
-class Resources(object):
+class GaneshaResources(object):
     def __init__(self):
-        super(Resources, self).__init__()
+        super(GaneshaResources, self).__init__()
         self.chunks = [None] * 49
 
     def read(self, files):
         for filepath in files:
             print('finding chunks in file path', filepath)
-            resource = Resource()
+            resource = GaneshaResource()
             resource.read(filepath)
             for i in range(49):
                 if resource.chunks[i]:
@@ -439,6 +439,208 @@ class QuadUntex(object):
         self.unknown = unknown
         self.visAngles = visAngles
 
+class ResourceFile(object):
+    def __init__(self, record, filename, mapdir):
+        self.record = record
+        # extension-index:
+        self.ext = int(os.path.splitext(filename)[1][1:])
+        # after ctor, sort filenames then match with sectors, then write this.
+        self.sector = None
+        self.filename = filename
+        self.filepath = os.path.join(mapdir, filename)
+    
+    def readData(self):
+        file = open(self.filepath, 'rb')
+        data = file.read()
+        file.close()
+        return data
+
+class MeshResFile(ResourceFile):
+    def __init__(self, record, filename, mapdir):
+        super().__init__(record, filename, mapdir)
+        data = self.readData()
+        
+        numChunks = 49
+        self.chunks = [None] * numChunks
+
+        header = (c_uint32 * numChunks).from_buffer_copy(data)
+
+        self.chunks = [None] * numChunks
+        for i, entry in enumerate(header):
+            begin = header[i]
+            if begin:
+                end = None
+                for j in range(i + 1, numChunks):
+                    if header[j]:
+                        end = header[j]
+                        break
+                if end == None:
+                    end = len(data)
+                self.chunks[i] = data[begin:end]
+
+        # now while we're here, parse the respective chunks
+        data = None
+        ofs = 0
+
+        def setChunk(x, ofs0=0):
+            nonlocal ofs
+            ofs = ofs0
+            nonlocal data
+            data = self.chunks[x]
+            return data
+
+        def read(cl):
+            nonlocal ofs
+            res = cl.from_buffer_copy(data[ofs:ofs+sizeof(cl)])
+            ofs += sizeof(cl)
+            return res
+
+        # reading from chunk 0x10
+        triTexVtxs = None
+        if setChunk(0x10):
+            hdr = read(MeshHeader)
+            triTexVtxs = read(VertexPos * (3 * hdr.numTriTex))
+            quadTexVtxs = read(VertexPos * (4 * hdr.numQuadTex))
+            triUntexVtxs = read(VertexPos * (3 * hdr.numTriUntex))
+            quadUntexVtxs = read(VertexPos * (4 * hdr.numQuadUntex))
+            triTexNormals = read(Normal * (3 * hdr.numTriTex))
+            quadTexNormals = read(Normal * (4 * hdr.numQuadTex))
+            triTexFaces = read(TriTexFace * hdr.numTriTex)
+            quadTexFaces = read(QuadTexFace * hdr.numQuadTex)
+            triUntexUnknowns = read(c_uint32 * hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
+            quadUntexUnknowns = read(c_uint32 * hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
+            triTexTilePos = read(TilePos * hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
+            quadTexTilePos = read(TilePos * hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
+            # and that's it from chunk 0x10
+
+        # reading chunk 0x2c
+        if setChunk(0x2c, 0x380):
+            # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
+            triTexVisAngles = read(c_uint16 * 512)
+            # ... and this is a 1536 byte block always
+            quadTexVisAngles = read(c_uint16 * 768)
+            triUntexVisAngles = read(c_uint16 * 64)
+            quadUntexVisAngles = read(c_uint16 * 256)
+            # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
+            # GaneshaDx has these constants:
+            #MaxTexturedTriangles = 360
+            #MaxTexturedQuads = 710
+            #MaxUntexturedTriangles = 64
+            #MaxUntexturedQuads = 256
+            # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
+            # done reading chunk 0x2c
+
+        # reading chunk 0x11
+        if setChunk(0x11):
+            self.colorPals = []
+            for i in range(16):
+                self.colorPals.append(read(RGBA5551 * 16))
+            # done reading chunk 0x11
+
+        # reading chunk 0x1f
+        if setChunk(0x1f):
+            self.grayPals = []
+            for i in range(16):
+                self.grayPals.append(read(RGBA5551 * 16))
+            # done reading chunk 0x1f
+
+        # reading chunk 0x19
+        if setChunk(0x19):
+            self.dirLightColors = read(LightColors)
+            self.dirLightDirs = read(VertexPos * 3) # could be Normal structure as well, but both get normalized to the same value in the end
+            self.ambientLightColor = read(RGB888)
+            self.backgroundColors = read(RGB888 * 2)
+            # done reading chunk 0x19
+
+        # reading chunk 0x1a
+        if setChunk(0x1a):
+            terrainSize = read(c_uint8 * 2)  # (sizeX, sizeZ)
+            # weird, it leaves room for 256 total tiles for the first xz plane, and then the second is packed?
+            terrainTileSrc = read(TerrainTile * (256 + terrainSize[0] * terrainSize[1]))
+            # done reading chunk 0x1a
+
+            # convert the terrainTiles from [z * terrainSize[0] + x] w/padding for y to [y][z][x]
+            self.terrainSize = terrainSize
+            self.terrainTiles = []
+            for y in range(2):
+                level = []
+                for z in range(self.terrainSize[1]):
+                    row = []
+                    for x in range(self.terrainSize[0]):
+                        row.append(terrainTileSrc[256 * y + z * terrainSize[0] + x])
+                    level.append(row)
+                self.terrainTiles.append(level)
+
+        # now for aux calcs
+        if triTexVtxs != None:
+            bboxMin = [math.inf] * 3
+            bboxMax = [-math.inf] * 3
+            for v in list(triTexVtxs) + list(quadTexVtxs) + list(triUntexVtxs) + list(quadUntexVtxs):
+                v = v.toTuple()
+                for i in range(3):
+                    bboxMin[i] = min(bboxMin[i], v[i])
+                    bboxMax[i] = max(bboxMax[i], v[i])
+            self.bbox = (tuple(bboxMin), tuple(bboxMax))
+            self.center = [None] * 3
+            for i in range(3):
+                self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
+            self.center = tuple(self.center)
+
+            # still not sure if it's worth saving this in its own structure ...
+            self.triTexs = []
+            for i in range(hdr.numTriTex):
+                self.triTexs.append(TriTex(
+                    triTexVtxs[3*i:3*(i+1)],
+                    triTexNormals[3*i:3*(i+1)],
+                    triTexFaces[i],
+                    triTexTilePos[i],
+                    triTexVisAngles[i]
+                ))
+
+            self.quadTexs = []
+            for i in range(hdr.numQuadTex):
+                self.quadTexs.append(QuadTex(
+                    quadTexVtxs[4*i:4*(i+1)],
+                    quadTexNormals[4*i:4*(i+1)],
+                    quadTexFaces[i],
+                    quadTexTilePos[i],
+                    quadTexVisAngles[i]
+                ))
+
+            self.triUntexs = []
+            for i in range(hdr.numTriUntex):
+                self.triUntexs.append(TriUntex(
+                    triUntexVtxs[3*i:3*(i+1)],
+                    triUntexUnknowns[i],
+                    triUntexVisAngles[i]
+                ))
+
+            self.quadUntexs = []
+            for i in range(hdr.numQuadUntex):
+                self.quadUntexs.append(QuadUntex(
+                    quadUntexVtxs[4*i:4*(i+1)],
+                    quadUntexUnknowns[i],
+                    quadUntexVisAngles[i]
+                ))
+
+class TexResFile(ResourceFile):
+    def __init__(self, record, filename, mapdir):
+        super().__init__(record, filename, mapdir)
+        data = self.readData()
+        self.textureData = (TwoNibbles * len(data)).from_buffer_copy(data)
+
+        # expand the 8-bits into separate 4-bits into an image double array
+        # this isn't grey, it's indexed into one of the 16 palettes.
+        # TODO store this just [] instead of [][]
+        self.textureIndexedData = []       # [y][x] in [0,15] integers
+        for y in range(1024):
+            dstrow = []
+            for x in range(128):
+                pair = self.textureData[x + y * 128]
+                dstrow.append(pair.lo)
+                dstrow.append(pair.hi)
+            self.textureIndexedData.append(dstrow)
+
 class Map(object):
     def __init__(self, filepath, mapConfigIndex, dayNight, weather):
         self.readGNS(filepath)
@@ -472,8 +674,8 @@ class Map(object):
         # (also the base mesh-resource?)
         # and the multiple mesh-resources each have a list of offsets that, when all superimposed, give the level its complete set of offsets into resoruces (mesh, lights, terrain, etc)
         # ... if the "mesh resource" includes mesh, terrain, lights ... maybe pick a better name for it? like "level resource" ?
-        self.resources = Resources()
-        self.resources.read(self.meshFilenames)
+        self.ganeshaResources = GaneshaResources()
+        self.ganeshaResources.read(self.meshFilenames)
         self.readFromChunks()
 
     # GaneshaDx here:
@@ -502,17 +704,6 @@ class Map(object):
 
         allRecords.sort(key=lambda a: a.sector)
 
-        self.allTexRecords = []
-        self.allMeshRecords = []
-        for r in allRecords:
-            if r.resourceType == RESOURCE_TEXTURE:
-                self.allTexRecords.append(r)
-            elif (r.resourceType == RESOURCE_MESH_INIT
-                or r.resourceType == RESOURCE_MESH_REPL
-                or r.resourceType == RESOURCE_MESH_ALT):
-                self.allMeshRecords.append(r)
-            # else keep it anywhere?
-
         # now using sorted sectors and file suffixes, map all records to their files
         allSectors = sorted(set(r.sector for r in allRecords))
 
@@ -521,25 +712,45 @@ class Map(object):
         for fn in os.listdir(self.mapdir):
             if fn != filename and os.path.splitext(fn)[0] == namesuffix:
                 allResFilenames.append(fn)
+        
         # sort by filename suffix
         allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
-
-        #print(allSectors)
-        #print(allResFilenames)
         assert len(allSectors) == len(allResFilenames)
 
         # map from sector back to resource filename
         self.filenameForSector = {}
         for (sector, filename) in zip(allSectors, allResFilenames):
-            print("sector", sector, "filename", filename)
             self.filenameForSector[sector] = filename
+        
+        #print(allSectors)
+        #print(allRes)
 
+        # now, here, per resource file, load *everything* you can
+        # I'm gonna put everything inside blender first and then sort it out per-scene later
+
+        self.allTexRes = []
+        self.allMeshRes = []
         for r in allRecords:
             print('GNS record', r.sector, self.filenameForSector[r.sector], r.resourceType, r.arrangement, r.isNight, r.weather)
+            if r.resourceType == RESOURCE_TEXTURE:
+                self.allTexRes.append(TexResFile(
+                    r,
+                    self.filenameForSector[r.sector],
+                    self.mapdir
+                ))
+            elif (r.resourceType == RESOURCE_MESH_INIT
+                or r.resourceType == RESOURCE_MESH_REPL
+                or r.resourceType == RESOURCE_MESH_ALT):
+                self.allMeshRes.append(MeshResFile(
+                    r,
+                    self.filenameForSector[r.sector],
+                    self.mapdir
+                ))
+            # else keep it anywhere?
 
         # enumerate unique (arrangement,night,weather) tuples
         # sort them too, so the first one is our (0,0,0) initial state
-        allMapStates = sorted(set(r.getMapState() for r in self.allMeshRecords))
+        allMapStates = sorted(set(r.record.getMapState() for r in self.allMeshRes))
         print('all map states:')
         print('arrangement / night / weather:')
         for s in allMapStates:
@@ -548,6 +759,7 @@ class Map(object):
             print("sorry there's no map states for this map...")
             raise "raise"
 
+    
     def setConfig(self, mapConfigIndex, dayNight, weather):
         print("setting config", mapConfigIndex, dayNight, weather)
         # now pick one ...
@@ -562,22 +774,22 @@ class Map(object):
         # now set the map state to its default: arrangement==0, weather==0 night==0
         # what about maps that don't have this particular state?
         # how about instead, sort all states, and pick the one closest to this ...
-        initMeshRecords = list(filter(
-            lambda r: r.getMapState() == curMapState
+        initMeshRes = list(filter(
+            lambda r: r.record.getMapState() == curMapState
                 # ... right?  I also want the init mesh in here, right?
-                or r.resourceType == RESOURCE_MESH_INIT,
-            self.allMeshRecords))
-        initTexRecords = list(filter(
-            lambda r: r.getMapState() == curMapState,
-            self.allTexRecords))
+                or r.record.resourceType == RESOURCE_MESH_INIT,
+            self.allMeshRes))
+        initTexRes = list(filter(
+            lambda r: r.record.getMapState() == curMapState,
+            self.allTexRes))
 
         # ... what order does the records() chunks[] system work?
-        #initMeshRecords.reverse()
+        #initMeshRes.reverse()
 
         # map from mesh and texture record to mesh filename
-        getPathForRecord = lambda r: os.path.join(self.mapdir, self.filenameForSector[r.sector])
-        self.meshFilenames = list(map(getPathForRecord, initMeshRecords))
-        self.textureFilenames = list(map(getPathForRecord, initTexRecords))
+        getPathForRes = lambda r: r.filepath
+        self.meshFilenames = list(map(getPathForRes, initMeshRes))
+        self.textureFilenames = list(map(getPathForRes, initTexRes))
         print('meshFilenames', self.meshFilenames)
         print('textureFilenames', self.textureFilenames)
 
@@ -617,7 +829,7 @@ class Map(object):
 
         def setChunk(x):
             nonlocal data
-            data = self.resources.chunks[x]
+            data = self.ganeshaResources.chunks[x]
             if data != None:
                 data = data.chunks[x]
             if data == None:
@@ -771,7 +983,7 @@ class Map(object):
         self.writeTerrain()
 
         self.writeTexture()
-        self.resources.write()
+        self.ganeshaResources.write()
 
     def writePolygons(self):
         data = bytes(self.meshHdr)

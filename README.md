@@ -35,7 +35,6 @@ The terrain tiles are imported and custom per-face attributes are stored.  These
 TODO:
 - I'm handling ambient via assigning it to the world background color.  is this a good thing?
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
-- preserve situations?  right now it's just reading the first texture from the first situation.
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - background gradients.  skybox?  sky-sphere?  camera-fixed billboard?
@@ -43,8 +42,20 @@ TODO:
 - - ...material shader nodes: Geometry.Position -> Separate XYZ.Z -> Map Range From (5, -5) to (0, 1) -> Mix factor, with 'A' the top color and 'B' the bottom color -> Base Color
 - should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
 - if I'm writing a plugin for blender IO, why not also write a plugin for face-picking that pops up editing the different custom-face attributes?
-- multiple objects / layers / scenes / whatever per map configuration, read and write all at once instead of picking your configuration upon file load.
+- preserve situations?  right now it's just reading the first texture from the first situation.
+- - instead it could just read in everything, multiple objects / layers / scenes / whatever per map configuration, read and write all at once instead of picking your configuration upon file load.
 - exporting.
+
+Design TODO 
+- make a root obj of the meshObj/tmeshObj/lights
+- put meshObj under it with scale (1/28, 1/24, 1/28) so it is proportional to the terrain geom
+- put tmeshObj under it with no scale
+- give root obj a scale of (1, 24/28, 1) so the horz/vert ratio is correct
+- put lightObjs under ... which one ?
+- also ambient has to be a light now, or a meshObj mat property?
+- make one of these rootObjs' per map state? duplicate meshes? etc?
+- eventually map all of a GNS file's resources to objects,
+- - then collect these objects under parent objects per-mapstate-configuration.
 
 ## Sources:
 
