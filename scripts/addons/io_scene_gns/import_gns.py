@@ -730,6 +730,90 @@ class MeshBlob(ResourceBlob):
             #bpy.ops.object.shade_smooth()
 
 
+        if hasattr(self, 'terrainSize'):
+            ### create the terrain
+
+            # vertexes of a [-.5, .5]^2 quad
+            quadVtxs = [
+                [-.5, -.5],
+                [-.5, .5],
+                [.5, .5],
+                [.5, -.5]
+            ]
+            # from GaneshaDx ... seems like there should be some kind of bitfield per modified vertex ...
+            liftPerVertPerSlopeType = [
+                [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
+                [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
+                [0x85, 0x52, 0x41, 0x96, 0x66, 0x99],
+                [0x52, 0x25, 0x11, 0x96, 0x66, 0x69],
+            ]
+
+            tmesh = bpy.data.meshes.new(filename + ' Terrain')
+            tmeshVtxs = []
+            tmeshEdges = []
+            tmeshFaces = []
+            tilesFlattened = []
+            for y in range(2):
+                for z in range(self.terrainSize[1]):
+                    for x in range(self.terrainSize[0]):
+                        tile = self.terrainTiles[y][z][x]
+                        vi = len(tmeshVtxs)
+                        tmeshFaces.append([vi+0, vi+1, vi+2, vi+3])
+                        for (i, q) in enumerate(quadVtxs):
+                            tmeshVtxs.append((
+                                x + .5 + q[0],
+                                -.5 * (tile.halfHeight + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
+                                z + .5 + q[1]
+                            ))
+                        tilesFlattened.append(tile)
+            tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
+            tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
+            #tmeshObj.matrix_world = global_matrix
+            tmeshObj.hide_render = True
+
+            # custom per-face attributes for the terrain:
+            # doI have to do this once at all, or once per mesh?
+            # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
+            import bmesh
+            bm = bmesh.new()
+            if bpy.context.mode == 'EDIT_MESH':
+                bm.from_edit_mesh(tmeshObj.data)
+            else:
+                bm.from_mesh(tmeshObj.data)
+            tagNames = [
+                'surfaceType',
+                'depth',
+                'cantCursor',
+                'cantWalk',
+                'rotFlags',
+                'unk0_6',
+                'unk1',
+                'unk5',
+                'unk6_2'
+                # via terrain mesh
+                #'halfHeight',
+                #'slopeHeight',
+                #'slopeType',
+            ]
+            tags = {}
+            for name in tagNames:
+                tags[name] = bm.faces.layers.int.new(name)
+                tags[name] = bm.faces.layers.int.get(name)
+            # example says to write to bm.edges[faceNo] to change a face property ... ?
+            # but they read from bm.faces[faceNo] ... wtf?
+            # ... BMElemSeq[index]: outdated internal index table, run ensure_lookup_table() first
+            bm.faces.ensure_lookup_table()
+            for (i, tile) in enumerate(tilesFlattened):
+                for name in tagNames:
+                    bm.faces[i][tags[name]] = getattr(tile, name)
+            if bpy.context.mode == 'EDIT_MESH':
+                bm.updated_edit_mesh(tmeshObj.data)
+            else:
+                bm.to_mesh(tmeshObj.data)
+            bm.free()
+
+            self.tmeshObj = tmeshObj
+
 
 
     # old write code ... but TODO only write what you have or something i guess idk
@@ -972,6 +1056,7 @@ class Map(object):
             # 0x1a
             'terrainSize',
             'terrainTiles',
+            'tmeshObj',
             # aux
             'bbox',
             'center',
@@ -1151,11 +1236,11 @@ def load(context,
 
         progress.enter_substeps(3, "Parsing GNS file...")
 
-        map = Map(filepath, mapConfigIndex, dayNight, weather)
-
         # deselect all
         if bpy.ops.object.select_all.poll():
             bpy.ops.object.select_all(action='DESELECT')
+
+        map = Map(filepath, mapConfigIndex, dayNight, weather)
 
         newObjects = []  # put new objects here
 
@@ -1344,88 +1429,9 @@ def load(context,
         meshObj.scale = 1./28., 1./24., 1./28.
         newObjects.append(meshObj)
 
-        ### create the terrain
-
-        # vertexes of a [-.5, .5]^2 quad
-        quadVtxs = [
-            [-.5, -.5],
-            [-.5, .5],
-            [.5, .5],
-            [.5, -.5]
-        ]
-        # from GaneshaDx ... seems like there should be some kind of bitfield per modified vertex ...
-        liftPerVertPerSlopeType = [
-            [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
-            [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
-            [0x85, 0x52, 0x41, 0x96, 0x66, 0x99],
-            [0x52, 0x25, 0x11, 0x96, 0x66, 0x69],
-        ]
-
-        tmesh = bpy.data.meshes.new(filename + ' Terrain')
-        tmeshVtxs = []
-        tmeshEdges = []
-        tmeshFaces = []
-        tilesFlattened = []
-        for y in range(2):
-            for z in range(map.terrainSize[1]):
-                for x in range(map.terrainSize[0]):
-                    tile = map.terrainTiles[y][z][x]
-                    vi = len(tmeshVtxs)
-                    tmeshFaces.append([vi+0, vi+1, vi+2, vi+3])
-                    for (i, q) in enumerate(quadVtxs):
-                        tmeshVtxs.append((
-                            x + .5 + q[0],
-                            -.5 * (tile.halfHeight + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
-                            z + .5 + q[1]
-                        ))
-                    tilesFlattened.append(tile)
-        tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
-        tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
-        tmeshObj.matrix_world = global_matrix
-        tmeshObj.hide_render = True
-        newObjects.append(tmeshObj)
-
-
-        # custom per-face attributes for the terrain:
-        # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
-        import bmesh
-        bm = bmesh.new()
-        if bpy.context.mode == 'EDIT_MESH':
-            bm.from_edit_mesh(tmeshObj.data)
-        else:
-            bm.from_mesh(tmeshObj.data)
-        tagNames = [
-            'surfaceType',
-            'depth',
-            'cantCursor',
-            'cantWalk',
-            'rotFlags',
-            'unk0_6',
-            'unk1',
-            'unk5',
-            'unk6_2'
-            # via terrain mesh
-            #'halfHeight',
-            #'slopeHeight',
-            #'slopeType',
-        ]
-        tags = {}
-        for name in tagNames:
-            tags[name] = bm.faces.layers.int.new(name)
-            tags[name] = bm.faces.layers.int.get(name)
-        # example says to write to bm.edges[faceNo] to change a face property ... ?
-        # but they read from bm.faces[faceNo] ... wtf?
-        # ... BMElemSeq[index]: outdated internal index table, run ensure_lookup_table() first
-        bm.faces.ensure_lookup_table()
-        for (i, tile) in enumerate(tilesFlattened):
-            for name in tagNames:
-                bm.faces[i][tags[name]] = getattr(tile, name)
-        if bpy.context.mode == 'EDIT_MESH':
-            bm.updated_edit_mesh(tmeshObj.data)
-        else:
-            bm.to_mesh(tmeshObj.data)
-        bm.free()
-
+        if hasattr(map, 'tmeshObj'):
+            map.tmeshObj.matrix_world = global_matrix
+            newObjects.append(map.tmeshObj)
 
         if hasattr(map, 'dirLightColors'):
             for obj in map.dirLightObjs:
