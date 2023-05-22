@@ -378,6 +378,28 @@ class ResourceBlob(object):
 def countSectors(size):
     return (size >> 11) + (1 if size & ((1<<11)-1) else 0)
 
+# colors are RGBA5551 array
+def palToImg(name, colors):
+    img = bpy.data.images.new(name, width=len(colors), height=1)
+    img.pixels = [
+        ch
+        for color in colors
+        for ch in color.toTuple()
+    ]
+    return img
+
+def palImgToBytes(palImg):
+    data = b''
+    pixRGBA = palImg.pixels
+    for i in range(len(pixRGBA)/4):
+        data += bytes(RGBA5551.fromRGBA(
+            pixRGBA[0 + 4 * i],
+            pixRGBA[1 + 4 * i],
+            pixRGBA[2 + 4 * i],
+            pixRGBA[3 + 4 * i]
+        ))
+    return data
+
 class MeshBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
@@ -466,28 +488,20 @@ class MeshBlob(ResourceBlob):
         # TODO put this method in sub-obj of chunk11
         # reading chunk 0x11
         if setChunk(0x11):
-            numColorPals = 16
-            numColorsPerPal = 16
-            colorPals = []
-            for i in range(numColorPals):
-                colorPals.append(read(RGBA5551 * numColorsPerPal))
+            self.colorPalImgs = [
+                palToImg(
+                    self.filename + 'Pal Tex '+str(i),
+                    read(RGBA5551 * 16)
+                ) for i in range(16)]
             # done reading chunk 0x11
-
-            # write out the palettes as images themselves
-            self.colorPalImgs = [None] * len(colorPals)
-            for (i, pal) in enumerate(colorPals):
-                self.colorPalImgs[i] = bpy.data.images.new(self.filename + 'Pal Tex '+str(i), width=numColorsPerPal, height=1)
-                self.colorPalImgs[i].pixels = [
-                    ch
-                    for color in pal
-                    for ch in color.toTuple()
-                ]
 
         # reading chunk 0x1f
         if setChunk(0x1f):
-            self.grayPals = []
-            for i in range(16):
-                self.grayPals.append(read(RGBA5551 * 16))
+            self.grayPalImgs = [
+                palToImg(
+                    self.filename + ' Gray Pal Tex '+str(i),
+                    read(RGBA5551 * 16)
+                ) for i in range(16)]
             # done reading chunk 0x1f
 
         # reading chunk 0x19
@@ -655,21 +669,15 @@ class MeshBlob(ResourceBlob):
         data = b''
         if hasattr(self, 'colorPalImgs'):
             for img in self.colorPalImgs:
-                pixRGBA = img.pixels
-                for i in range(len(pixRGBA)/4):
-                    data += bytes(RGBA5551.fromRGBA(
-                        pixRGBA[0 + 4 * i],
-                        pixRGBA[1 + 4 * i],
-                        pixRGBA[2 + 4 * i],
-                        pixRGBA[3 + 4 * i]
-                    ))
+                data += palImgToBytes(img)
         self.chunks[0x11] = data
 
     def writeGrayPalettes(self):
         data = b''
-        for palette in self.grayPals:
-            data += bytes(palette)
-        self.chunks[0x11] = data
+        if hasattr(self, 'grayPalImgs'):
+            for img in self.grayPalImgs:
+                data += palImgToBytes(img)
+        self.chunks[0x1f] = data
 
     def writeDirLights(self):
         data = (
