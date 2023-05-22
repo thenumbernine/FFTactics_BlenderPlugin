@@ -674,28 +674,27 @@ class TexBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
         data = self.readData()
-        self.textureData = (TwoNibbles * len(data)).from_buffer_copy(data)
 
         # expand the 8-bits into separate 4-bits into an image double array
         # this isn't grey, it's indexed into one of the 16 palettes.
         # TODO store this just [] instead of [][]
-        self.textureIndexedData = []       # [y][x] in [0,15] integers
-        for y in range(1024):
-            dstrow = []
-            for x in range(128):
-                pair = self.textureData[x + y * 128]
-                dstrow.append(pair.lo)
-                dstrow.append(pair.hi)
-            self.textureIndexedData.append(dstrow)
+        pix = (TwoNibbles * len(data)).from_buffer_copy(data)
+        self.textureIndexedData = [       # [colorIndex] in [0,15] integers
+            colorIndex
+            for y in range(1024)
+            for x in range(128)
+            for colorIndex in pix[x + y * 128].toTuple()
+        ]
 
-    # TODO fixme or something 
+    # TODO fixme or something
     def writeTexture(self):
         data = b''
         for y in range(1024):
             for x in range(128):
-                lo = self.textureIndexedData[y][x*2]
-                hi = self.textureIndexedData[y][x*2 + 1]
-                data += bytes(TwoNibbles(lo, hi))
+                data += bytes(TwoNibbles(
+                    self.textureIndexedData[0 + 2 * (x + 128 * y)],
+                    self.textureIndexedData[1 + 2 * (x + 128 * y)]
+                ))
         assert len(self.textureFilenames) == 1
         file = open(self.textureFilenames[0], 'wb')
         file.write(data)
@@ -715,7 +714,6 @@ class Map(object):
             print("no texture...")
             raise "raise"
         res = self.texRess[0]
-        self.textureData = res.textureData
         self.textureIndexedData = res.textureIndexedData
 
         # this is like an overlay filesystem right?
@@ -843,7 +841,7 @@ class Map(object):
     # and make a new scene/group/whatever for each
     # reuse blender objs <-> fft resources as you go
     def setConfig(self, mapConfigIndex, dayNight, weather):
-        
+
         """
         what if there's more than 1 texture?
         map000 has no textures
@@ -953,8 +951,7 @@ def load(context,
         indexImg.colorspace_settings.name = 'Raw'
         indexImg.pixels = [
             ch
-            for row in map.textureIndexedData
-            for colorIndex in row
+            for colorIndex in map.textureIndexedData
             for ch in (
                 (colorIndex+.5)/16.,
                 (colorIndex+.5)/16.,
@@ -1291,18 +1288,18 @@ def load(context,
 
 
         # setup bg mesh mat
-        
+
         bgMat = bpy.data.materials.new('GNS Bg Mat')
         bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
         bgMatWrap.use_nodes = True
-        
+
         bsdf = bgMat.node_tree.nodes['Principled BSDF']
         bgMixNode = bgMat.node_tree.nodes.new('ShaderNodeMixRGB')
         bgMixNode.location = (-200, 0)
         bgMixNode.inputs[1].default_value[:3] = map.backgroundColors[0].toTuple()
         bgMixNode.inputs[2].default_value[:3] = map.backgroundColors[1].toTuple()
         bgMat.node_tree.links.new(bsdf.inputs['Base Color'], bgMixNode.outputs[0])
-        
+
         bgMapRangeNode = bgMat.node_tree.nodes.new('ShaderNodeMapRange')
         bgMapRangeNode.location = (-400, 0)
         bgMapRangeNode.inputs['From Min'].default_value = 20.
@@ -1314,7 +1311,7 @@ def load(context,
         bgSepNode = bgMat.node_tree.nodes.new('ShaderNodeSeparateXYZ')
         bgSepNode.location = (-600, 0)
         bgMat.node_tree.links.new(bgMapRangeNode.inputs['Value'], bgSepNode.outputs['Z'])
-        
+
         bgGeomNode = bgMat.node_tree.nodes.new('ShaderNodeNewGeometry')
         bgGeomNode.location = (-800, 0)
         bgMat.node_tree.links.new(bgSepNode.inputs['Vector'], bgGeomNode.outputs['Position'])
@@ -1346,7 +1343,7 @@ def load(context,
         for f in bm.faces:
             f.normal_flip()
         bm.normal_update()
-        
+
         bm.to_mesh(bgmeshObj.data)
         bm.free()
 
@@ -1360,10 +1357,10 @@ def load(context,
         # flip normals ... ?
         #bpy.ops.object.editmode_toggle()
         #bpy.ops.mesh.select_all(action='SELECT')
-        #bpy.ops.mesh.flip_normals() 
+        #bpy.ops.mesh.flip_normals()
         #bpy.ops.object.mode_set()
         # view_layer.objects.active = bgmeshObj
-        
+
         ### Create new objects
         # TODO this once at a time?
         for obj in newObjects:
