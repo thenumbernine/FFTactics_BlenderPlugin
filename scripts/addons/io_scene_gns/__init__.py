@@ -62,18 +62,6 @@ class ImportGNS(bpy.types.Operator, ImportHelper):
         min = .01, max = 1000.,
         default = 28.0,
     )
-    mapConfigIndex : IntProperty(
-        name = "map arrangement (0, 1, .. ?)",
-        default = 0
-    )
-    dayNight : IntProperty(
-        name = "0=day 1=night",
-        default = 0
-    )
-    weather : IntProperty(
-        name = "weather (0-4)",
-        default = 0
-    )
 
     def execute(self, context):
         # print("Selected: " + context.active_object.name)
@@ -152,9 +140,6 @@ class GNS_PT_import_transform(bpy.types.Panel):
         layout.prop(operator, "global_scale_x")
         layout.prop(operator, "global_scale_y")
         layout.prop(operator, "global_scale_z")
-        layout.prop(operator, "mapConfigIndex")
-        layout.prop(operator, "dayNight")
-        layout.prop(operator, "weather")
 
 
 class GNS_PT_import_geometry(bpy.types.Panel):

@@ -1013,13 +1013,179 @@ class TexBlob(ResourceBlob):
 
 
 class Map(object):
-    def __init__(self, filepath, mapConfigIndex, dayNight, weather):
+    def __init__(self,
+        context,
+        progress,
+        filepath,
+        global_scale_x,
+        global_scale_y,
+        global_scale_z,
+        global_matrix
+    ):
+        progress.enter_substeps(1, "Importing GNS %r..." % filepath)
+        
+        self.filepath = filepath
+        self.mapdir = os.path.dirname(filepath)
+        self.filename = os.path.basename(filepath)
+        self.namesuffix = os.path.splitext(self.filename)[0]
         self.readGNS(filepath)
+        
+        progress.enter_substeps(3, "Parsing GNS file...")
 
-        self.setConfig(mapConfigIndex, dayNight, weather)
+        for mapState in self.allMapStates:
+            self.setMapState(mapState)
+            self.buildCollection(
+                context,
+                progress,
+                self.namesuffix + ' ' + str(mapState),
+                global_scale_x,
+                global_scale_y,
+                global_scale_z,
+                global_matrix)
+        
+        progress.leave_substeps("Done.")
+        progress.leave_substeps("Finished importing: %r" % filepath)
 
-        # copy texture fields
-        # TODO copy refs to blender objects associated with these fields
+    # GaneshaDx here:
+    # iters thru whole file, reading GNSRecord's as 20-bytes (or whatever remains)
+    #  filters out only the tex & mesh res.
+    # sort resources by sector
+    def readGNS(self, filepath):
+        #mapNum = int(filepath[-7:-4])
+        file = open(filepath, 'rb')
+        allRecords = []
+        while True:
+            #def readStruct(file, struct):
+            #    return struct.from_buffer_copy(file.read(sizeof(struct)))
+            #r = readStruct(file, GNSRecord)
+            # but it could be incomplete right?
+            # file.read(numBytes) will fail gracefully
+            # but I think ctype.from_buffer_copy won't ...
+            sdata = file.read(sizeof(GNSRecord))
+            sdata = sdata + b'\0' * (sizeof(GNSRecord) - len(sdata)) # pad?
+            r = GNSRecord.from_buffer_copy(sdata)
+            if r.resourceFlag == 1 and r.resourceType == RESOURCE_EOF:
+                break
+            allRecords.append(r)
+        file.close()
+
+        allRecords.sort(key=lambda a: a.sector)
+
+        # now using sorted sectors and file suffixes, map all records to their files
+        allSectors = sorted(set(r.sector for r in allRecords))
+
+        # get all files in the same dir with matching prefix ...
+        allResFilenames = []
+        for fn in os.listdir(self.mapdir):
+            if fn != self.filename and os.path.splitext(fn)[0] == self.namesuffix:
+                allResFilenames.append(fn)
+
+        # sort by filename suffix
+        allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
+        assert len(allSectors) == len(allResFilenames)
+
+        # map from sector back to resource filename
+        self.filenameForSector = {}
+        for (sector, resFn) in zip(allSectors, allResFilenames):
+            self.filenameForSector[sector] = resFn 
+
+        #print(allSectors)
+        #print(allRes)
+
+        # now, here, per resource file, load *everything* you can
+        # I'm gonna put everything inside blender first and then sort it out per-scene later
+
+        self.allTexRes = []
+        self.allMeshRes = []
+        for r in allRecords:
+            print('GNS record', r.sector, self.filenameForSector[r.sector], r.resourceType, r.arrangement, r.isNight, r.weather)
+            if r.resourceType == RESOURCE_TEXTURE:
+                self.allTexRes.append(TexBlob(
+                    r,
+                    self.filenameForSector[r.sector],
+                    self.mapdir
+                ))
+            elif (r.resourceType == RESOURCE_MESH_INIT
+                or r.resourceType == RESOURCE_MESH_REPL
+                or r.resourceType == RESOURCE_MESH_ALT):
+                self.allMeshRes.append(MeshBlob(
+                    r,
+                    self.filenameForSector[r.sector],
+                    self.mapdir
+                ))
+            # else keep it anywhere?
+
+        # enumerate unique (arrangement,night,weather) tuples
+        # sort them too, so the first one is our (0,0,0) initial state
+        self.allMapStates = sorted(set(r.record.getMapState() for r in self.allMeshRes))
+        print('all map states:')
+        print('arrangement / night / weather:')
+        for s in self.allMapStates:
+            print(s)
+        if len(self.allMapStates) == 0:
+            print("sorry there's no map states for this map...")
+            raise "raise"
+
+
+    def setMapState(self, mapState):
+        """
+        what if there's more than 1 texture?
+        map000 has no textures
+        map051 and map105 have two textures (how are those extra textures referenced in the map file? tex face page?)
+        map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
+        #assert len(self.textureFilenames) == 1
+
+        ex map001
+        has 19 dif tex (0x17)
+        has 1 mesh_init (0x2e)
+        has 1 mesh_repl (0x2f)
+        has 19 dif mesh_alt (0x30)
+        has 1 eof (0x31)
+
+        ex map002
+        has 20 dif texture (0x17) resources?
+        has 1 dif mesh_repl (0x2f)
+        has 19 dif mesh_alt (0x30)
+        has 1 eof (0x31)
+        """
+
+        mapConfigIndex, dayNight, weather = mapState
+        print("setting config", mapConfigIndex, dayNight, weather)
+        # now pick one ...
+        # or somehow let the user decide which one to pick?
+        #mapState = (mapConfigIndex, dayNight, weather)
+        #mapState = self.allMapStates[0]
+        #mapState = self.allMapStates[1]
+        #mapState = (1,1,4)
+        # are all configurations defined for all maps?
+        # TODO
+
+        # now set the map state to its default: arrangement==0, weather==0 night==0
+        # what about maps that don't have this particular state?
+        # how about instead, sort all states, and pick the one closest to this ...
+        self.meshRess = list(filter(
+            lambda r: r.record.getMapState() == mapState
+                # ... right?  I also want the init mesh in here, right?
+                or r.record.resourceType == RESOURCE_MESH_INIT,
+            self.allMeshRes))
+        self.texRess = list(filter(
+            lambda r: r.record.getMapState() == mapState,
+            self.allTexRes))
+
+        # ... what order does the records() chunks[] system work?
+        #self.meshRess.reverse()
+
+        # map from mesh and texture record to mesh filename
+        getPathForRes = lambda r: r.filename
+        print('meshFilenames', list(map(getPathForRes, self.meshRess)))
+        print('textureFilenames', list(map(getPathForRes, self.texRess)))
+
+
+        # update fields ... 
+        # ... tho maybe do this another way ...
+        # TODO instead of setFields / getattr, how about a 'getField' method that does the same?
+        
+        # copy texture resource fields
 
         if len(self.texRess) == 0:
             print("no texture...")
@@ -1027,11 +1193,8 @@ class Map(object):
         res = self.texRess[0]
         self.indexImg = res.indexImg
 
-        # this is like an overlay filesystem right?
-        # a unique (arrangement, day/night, weather) will have a unique texture & mesh resource
-        # (also the base mesh-resource?)
-        # and the multiple mesh-resources each have a list of offsets that, when all superimposed, give the level its complete set of offsets into resoruces (mesh, lights, terrain, etc)
-        # ... if the "mesh resource" includes mesh, terrain, lights ... maybe pick a better name for it? like "level resource" ?
+        # copy mesh resource fields
+
         def setResField(field):
             for res in self.meshRess:
                 if hasattr(res, field):
@@ -1067,186 +1230,20 @@ class Map(object):
         ]:
             setResField(field)
 
-    # GaneshaDx here:
-    # iters thru whole file, reading GNSRecord's as 20-bytes (or whatever remains)
-    #  filters out only the tex & mesh res.
-    # sort resources by sector
-    def readGNS(self, filepath):
-        #mapNum = int(filepath[-7:-4])
-        self.mapdir = os.path.dirname(filepath)
-        filename = os.path.basename(filepath)
-        namesuffix = os.path.splitext(filename)[0]
-        file = open(filepath, 'rb')
-        allRecords = []
-        while True:
-            #def readStruct(file, struct):
-            #    return struct.from_buffer_copy(file.read(sizeof(struct)))
-            #r = readStruct(file, GNSRecord)
-            # but it could be incomplete right?
-            # file.read(numBytes) will fail gracefully
-            # but I think ctype.from_buffer_copy won't ...
-            sdata = file.read(sizeof(GNSRecord))
-            sdata = sdata + b'\0' * (sizeof(GNSRecord) - len(sdata)) # pad?
-            r = GNSRecord.from_buffer_copy(sdata)
-            if r.resourceFlag == 1 and r.resourceType == RESOURCE_EOF:
-                break
-            allRecords.append(r)
-        file.close()
-
-        allRecords.sort(key=lambda a: a.sector)
-
-        # now using sorted sectors and file suffixes, map all records to their files
-        allSectors = sorted(set(r.sector for r in allRecords))
-
-        # get all files in the same dir with matching prefix ...
-        allResFilenames = []
-        for fn in os.listdir(self.mapdir):
-            if fn != filename and os.path.splitext(fn)[0] == namesuffix:
-                allResFilenames.append(fn)
-
-        # sort by filename suffix
-        allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
-        assert len(allSectors) == len(allResFilenames)
-
-        # map from sector back to resource filename
-        self.filenameForSector = {}
-        for (sector, filename) in zip(allSectors, allResFilenames):
-            self.filenameForSector[sector] = filename
-
-        #print(allSectors)
-        #print(allRes)
-
-        # now, here, per resource file, load *everything* you can
-        # I'm gonna put everything inside blender first and then sort it out per-scene later
-
-        self.allTexRes = []
-        self.allMeshRes = []
-        for r in allRecords:
-            print('GNS record', r.sector, self.filenameForSector[r.sector], r.resourceType, r.arrangement, r.isNight, r.weather)
-            if r.resourceType == RESOURCE_TEXTURE:
-                self.allTexRes.append(TexBlob(
-                    r,
-                    self.filenameForSector[r.sector],
-                    self.mapdir
-                ))
-            elif (r.resourceType == RESOURCE_MESH_INIT
-                or r.resourceType == RESOURCE_MESH_REPL
-                or r.resourceType == RESOURCE_MESH_ALT):
-                self.allMeshRes.append(MeshBlob(
-                    r,
-                    self.filenameForSector[r.sector],
-                    self.mapdir
-                ))
-            # else keep it anywhere?
-
-        # enumerate unique (arrangement,night,weather) tuples
-        # sort them too, so the first one is our (0,0,0) initial state
-        allMapStates = sorted(set(r.record.getMapState() for r in self.allMeshRes))
-        print('all map states:')
-        print('arrangement / night / weather:')
-        for s in allMapStates:
-            print(s)
-        if len(allMapStates) == 0:
-            print("sorry there's no map states for this map...")
-            raise "raise"
-
-
-    # TODO don't set upon init
-    # instead cycle thru *all* configs
-    # and make a new scene/group/whatever for each
-    # reuse blender objs <-> fft resources as you go
-    def setConfig(self, mapConfigIndex, dayNight, weather):
-
-        """
-        what if there's more than 1 texture?
-        map000 has no textures
-        map051 and map105 have two textures (how are those extra textures referenced in the map file? tex face page?)
-        map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
-        #assert len(self.textureFilenames) == 1
-
-        ex map001
-        has 19 dif tex (0x17)
-        has 1 mesh_init (0x2e)
-        has 1 mesh_repl (0x2f)
-        has 19 dif mesh_alt (0x30)
-        has 1 eof (0x31)
-
-        ex map002
-        has 20 dif texture (0x17) resources?
-        has 1 dif mesh_repl (0x2f)
-        has 19 dif mesh_alt (0x30)
-        has 1 eof (0x31)
-        """
-
-        print("setting config", mapConfigIndex, dayNight, weather)
-        # now pick one ...
-        # or somehow let the user decide which one to pick?
-        curMapState = (mapConfigIndex, dayNight, weather)
-        #curMapState = allMapStates[0]
-        #curMapState = allMapStates[1]
-        #curMapState = (1,1,4)
-        # are all configurations defined for all maps?
-        # TODO
-
-        # now set the map state to its default: arrangement==0, weather==0 night==0
-        # what about maps that don't have this particular state?
-        # how about instead, sort all states, and pick the one closest to this ...
-        self.meshRess = list(filter(
-            lambda r: r.record.getMapState() == curMapState
-                # ... right?  I also want the init mesh in here, right?
-                or r.record.resourceType == RESOURCE_MESH_INIT,
-            self.allMeshRes))
-        self.texRess = list(filter(
-            lambda r: r.record.getMapState() == curMapState,
-            self.allTexRes))
-
-        # ... what order does the records() chunks[] system work?
-        #self.meshRess.reverse()
-
-        # map from mesh and texture record to mesh filename
-        getPathForRes = lambda r: r.filename
-        print('meshFilenames', list(map(getPathForRes, self.meshRess)))
-        print('textureFilenames', list(map(getPathForRes, self.texRess)))
-
-    def polygons(self):
-        return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
-
-################################ import_gns ################################
-
-def load(context,
-         filepath,
-         *,
-         global_scale_x=28.0,
-         global_scale_y=24.0,
-         global_scale_z=28.0,
-         relpath=None,
-         global_matrix=None,
-         mapConfigIndex=0,
-         dayNight=0,
-         weather=0
-         ):
-    with ProgressReport(context.window_manager) as progress:
-
-        progress.enter_substeps(1, "Importing GNS %r..." % filepath)
-
-        filename = os.path.splitext((os.path.basename(filepath)))[0]
-
-        if global_matrix is None:
-            global_matrix = mathutils.Matrix()
-
-        progress.enter_substeps(3, "Parsing GNS file...")
-
-        # deselect all
-        if bpy.ops.object.select_all.poll():
-            bpy.ops.object.select_all(action='DESELECT')
-
-        map = Map(filepath, mapConfigIndex, dayNight, weather)
-
+    def buildCollection(self,
+        context,
+        progress,
+        collectionName,
+        global_scale_x,
+        global_scale_y,
+        global_scale_z,
+        global_matrix
+    ):
         newObjects = []  # put new objects here
 
         view_layer = context.view_layer
         #collection = view_layer.active_layer_collection.collection
-        collection = bpy.data.collections.new(filename)
+        collection = bpy.data.collections.new(collectionName)
         bpy.context.scene.collection.children.link(collection)
 
         ### make the material for textured faces
@@ -1255,25 +1252,24 @@ def load(context,
 
         # Write out the indexed image with each 16 palettes applied to it
         # This can only be done once the texture and color-palette MeshBlob have been read in
-        matTexNamePerPal = [None] * len(map.colorPalImgs)
-        for (i, pal) in enumerate(map.colorPalImgs):
-            name ='GNS Mat Tex w Pal '+str(i)
-            matTexNamePerPal[i] = name
-
+        matPerPal = [None] * len(self.colorPalImgs)
+        for (i, pal) in enumerate(self.colorPalImgs):
             # get image ...
             # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-            mat = uniqueMaterials[name] = bpy.data.materials.new(name)
+            mat = bpy.data.materials.new('GNS Mat Tex w Pal '+str(i))
+            uniqueMaterials[mat.name] = mat
+            matPerPal[i] = mat
             matWrap = node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=False)
             matWrap.use_nodes = True
 
             # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
             palNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            palNode.image = map.colorPalImgs[i]
+            palNode.image = self.colorPalImgs[i]
             palNode.interpolation = 'Closest'
             palNode.location = (-300, 0)
 
             indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            indexNode.image = map.indexImg
+            indexNode.image = self.indexImg
             indexNode.interpolation = 'Closest'
             indexNode.location = (-600, 0)
 
@@ -1298,8 +1294,8 @@ def load(context,
 
         ### make the material for untextured faces
 
-        matWOTexName = 'GNS Material Untextured'
-        matWOTex = uniqueMaterials[matWOTexName] = bpy.data.materials.new(matWOTexName)
+        matWOTex = bpy.data.materials.new(self.namesuffix + ' Mat Untex')
+        uniqueMaterials[matWOTex.name] = matWOTex 
         matWOTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWOTex, is_readonly=False)
         matWOTexWrap.use_nodes = True
         matWOTexWrap.specular = 0
@@ -1307,13 +1303,14 @@ def load(context,
 
 
         ### make the mesh
+        ### TODO can I make this in the Resource and not here?
 
         material_mapping = {name: i for i, name in enumerate(uniqueMaterials)}
         materials = [None] * len(uniqueMaterials)
         for name, index in material_mapping.items():
             materials[index] = uniqueMaterials[name]
 
-        mesh = bpy.data.meshes.new(filename + ' Mesh')
+        mesh = bpy.data.meshes.new(self.namesuffix + ' Mesh')
         for material in materials:
             mesh.materials.append(material)
 
@@ -1331,7 +1328,7 @@ def load(context,
         faces = []  # tuples of the faces
         vi = 0
         vti = 0
-        for s in map.polygons():
+        for s in self.polygons():
             isTexd = isinstance(s, TriTex) or isinstance(s, QuadTex)
             vs = vertexesForPoly(s)
             n = len(vs)
@@ -1362,7 +1359,7 @@ def load(context,
                     face_vert_loc_indices,
                     face_vert_nor_indices,
                     face_vert_tex_indices,
-                    matTexNamePerPal[s.texFace.pal] if isTexd else matWOTexName
+                    matPerPal[s.texFace.pal].name if isTexd else matWOTex.name
                 ))
             vi+=n
             #if isTexd:
@@ -1429,17 +1426,17 @@ def load(context,
         meshObj.scale = 1./28., 1./24., 1./28.
         newObjects.append(meshObj)
 
-        if hasattr(map, 'tmeshObj'):
-            map.tmeshObj.matrix_world = global_matrix
-            newObjects.append(map.tmeshObj)
+        if hasattr(self, 'tmeshObj'):
+            self.tmeshObj.matrix_world = global_matrix
+            newObjects.append(self.tmeshObj)
 
-        if hasattr(map, 'dirLightColors'):
-            for obj in map.dirLightObjs:
+        if hasattr(self, 'dirLightColors'):
+            for obj in self.dirLightObjs:
                 obj.matrix_world = global_matrix
                 newObjects.append(obj)
-            newObjects.append(map.ambLightObj)
-            map.ambLightObj.matrix_world = global_matrix
-            newObjects.append(map.bgmeshObj)
+            newObjects.append(self.ambLightObj)
+            self.ambLightObj.matrix_world = global_matrix
+            newObjects.append(self.bgmeshObj)
 
         # flip normals ... ?
         #bpy.ops.object.editmode_toggle()
@@ -1455,17 +1452,45 @@ def load(context,
             obj.select_set(True)
        
         # has to be set after ... bleh ...
-        #if hasattr(map, 'bgmeshObj'):
+        #if hasattr(self, 'bgmeshObj'):
             # how come this works if I add the bgmeshObj earlier? 
             # RuntimeError: Operator bpy.ops.object.modifier_add.poll() Context missing active object
-            #map.bgmeshObj.select_set(True)
+            #self.bgmeshObj.select_set(True)
             #bpy.ops.object.modifier_add(type='SUBSURF')
             #bpy.ops.object.shade_smooth()
 
         view_layer.update()
 
+    def polygons(self):
+        return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
 
-        progress.leave_substeps("Done.")
-        progress.leave_substeps("Finished importing: %r" % filepath)
+################################ import_gns ################################
+
+def load(context,
+         filepath,
+         *,
+         relpath=None,
+         global_scale_x=28.0,
+         global_scale_y=24.0,
+         global_scale_z=28.0,
+         global_matrix=None,
+         ):
+    with ProgressReport(context.window_manager) as progress:
+
+        if global_matrix is None:
+            global_matrix = mathutils.Matrix()
+
+        # deselect all
+        if bpy.ops.object.select_all.poll():
+            bpy.ops.object.select_all(action='DESELECT')
+
+        Map(context,
+            progress,
+            filepath,
+            global_scale_x,
+            global_scale_y,
+            global_scale_z,
+            global_matrix)
+
 
     return {'FINISHED'}
