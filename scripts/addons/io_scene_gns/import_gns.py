@@ -156,6 +156,9 @@ class TilePos(FFTStruct):
     ]
 assert sizeof(TilePos) == 2
 
+def clamp(x,mn,mx):
+    return max(mn, min(mx, x))
+
 class RGBA5551(FFTStruct):
     _pack_ = 1
     _fields_ = [
@@ -175,6 +178,17 @@ class RGBA5551(FFTStruct):
         if not (r == 0. and g == 0. and b == 0.):
             a = 1.
         return (r,g,b,a)
+
+    @staticmethod
+    def fromRGBA(r,g,b,a):
+        if a < .5:
+            return RGBA5551(0,0,0,0)
+        else:
+            return RGBA5551(
+                31 * clamp(r, 0, 1),
+                31 * clamp(g, 0, 1),
+                31 * clamp(b, 0, 1),
+                1)
 
 # hmm can I inerit from c_uint16 and override some behavior or something?
 #class LightColorChannel(FFTStruct):
@@ -451,10 +465,20 @@ class MeshBlob(ResourceBlob):
 
         # reading chunk 0x11
         if setChunk(0x11):
-            self.colorPals = []
+            colorPals = []
             for i in range(16):
-                self.colorPals.append(read(RGBA5551 * 16))
+                colorPals.append(read(RGBA5551 * 16))
             # done reading chunk 0x11
+
+            # write out the palettes as images themselves
+            self.colorPalImgs = [None] * len(colorPals)
+            for (i, pal) in enumerate(colorPals):
+                self.colorPalImgs[i] = bpy.data.images.new(self.filename + 'Pal Tex '+str(i), width=16, height=1)
+                self.colorPalImgs[i].pixels = [
+                    ch
+                    for colorIndex in range(16)
+                    for ch in pal[colorIndex].toTuple()
+                ]
 
         # reading chunk 0x1f
         if setChunk(0x1f):
@@ -625,8 +649,16 @@ class MeshBlob(ResourceBlob):
 
     def writeColorPalettes(self):
         data = b''
-        for palette in self.colorPals:
-            data += bytes(palette)
+        if hasattr(self, 'colorPalImgs'):
+            for img in self.colorPalImgs:
+                pixRGBA = img.pixels
+                for i in range(16):
+                    data += bytes(RGBA5551.fromRGBA(
+                        pixRGBA[0 + 4 * i],
+                        pixRGBA[1 + 4 * i],
+                        pixRGBA[2 + 4 * i],
+                        pixRGBA[3 + 4 * i]
+                    ))
         self.chunks[0x11] = data
 
     def writeGrayPalettes(self):
@@ -765,7 +797,7 @@ class Map(object):
                         return
         for field in [
             # 0x11
-            'colorPals',
+            'colorPalImgs',
             # 0x1f
             'grayPals',
             # 0x19
@@ -968,23 +1000,13 @@ def load(context,
 
         ### make the material for textured faces
 
-        # write out the palettes as images themselves
-        # hook these up to the indexed image and no more need for the imagePerPal
-        palImgs = [None] * len(map.colorPals)
-        for (i, pal) in enumerate(map.colorPals):
-            palImgs[i] = bpy.data.images.new(filename + 'Pal Tex '+str(i), width=16, height=1)
-            palImgs[i].pixels = [
-                ch
-                for colorIndex in range(16)
-                for ch in pal[colorIndex].toTuple()
-            ]
+
 
         uniqueMaterials = {}
 
         # write out the indexed image with each 16 palettes applied to it
-        imagePerPal = [None] * len(map.colorPals)
-        matTexNamePerPal = [None] * len(map.colorPals)
-        for (i, pal) in enumerate(map.colorPals):
+        matTexNamePerPal = [None] * len(map.colorPalImgs)
+        for (i, pal) in enumerate(map.colorPalImgs):
             name ='GNS Mat Tex w Pal '+str(i)
             matTexNamePerPal[i] = name
 
@@ -996,7 +1018,7 @@ def load(context,
 
             # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
             palNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            palNode.image = palImgs[i]
+            palNode.image = map.colorPalImgs[i]
             palNode.interpolation = 'Closest'
             palNode.location = (-300, 0)
 
