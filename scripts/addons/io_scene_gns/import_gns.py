@@ -512,6 +512,7 @@ class MeshBlob(ResourceBlob):
             self.backgroundColors = read(RGB888 * 2)
             # done reading chunk 0x19
 
+
         # reading chunk 0x1a
         if setChunk(0x1a):
             terrainSize = read(c_uint8 * 2)  # (sizeX, sizeZ)
@@ -582,6 +583,154 @@ class MeshBlob(ResourceBlob):
                     quadUntexUnknowns[i],
                     quadUntexVisAngles[i]
                 ))
+
+        # after bbox, create lights and bgs if their data exists. ..
+        if hasattr(self, 'dirLightColors'):
+            cornerPos = (0,0,0)
+            if hasattr(self, 'bbox'):
+                cornerPos = self.bbox[0]
+
+            # directional lights
+            # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
+            self.dirLightObjs = []
+            for i in range(3):
+                lightName = filename + ' Light '+str(i)
+                lightData = bpy.data.lights.new(name=lightName, type='SUN')
+                lightData.energy = 20       # ?
+                lightData.color = self.dirLightColors.ithToTuple(i)
+                lightData.angle = math.pi
+                lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
+                # matrix_world rotate y- to z+ ...
+                #lightObj.matrix_world = global_matrix
+                # alright, how come with mesh, I can assign the matrix_world then assign the scale, and it rotates scales
+                # but with this light, I apply matrix_world then I apply location, and the matrix_world is gone?
+                # python is a languge without any block scope and with stupid indent rules.  it encourages polluting function namespaces.
+                lightPos = (
+                    cornerPos[0] / 28 + i,
+                    cornerPos[2] / 24,
+                    -cornerPos[1] / 28
+                )
+                lightObj.location = lightPos[0], lightPos[1], lightPos[2]
+                # calculate lightObj Euler angles by dirLightDirs
+                # TODO figure out which rotates which...
+                dir = self.dirLightDirs[i].toTuple()
+                #print('light dir', dir)
+                eulerAngles = (
+                    math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), dir[1]), # pitch
+                    math.atan2(dir[2], dir[0]),  # yaw
+                    0
+                   )
+                lightObj.rotation_euler = eulerAngles[0], eulerAngles[1], eulerAngles[2]
+                # hmm, this doesn't update like some random page said.
+                #view_layer.update() # should transform the lightObj's (location, rotation_euler, scale) to its ... matrix?  matrix_locl? matrix_world? where int hee world is this documented?
+                # setting matrix_world clears (location, rotation_euler, scale) ...
+                # so does transforming it via '@'
+                # even after calling view_layer.update()
+                # best answer yet: https://blender.stackexchange.com/a/169424
+                self.dirLightObjs.append(lightObj)
+
+
+            # ambient light?  in blender?
+            # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
+            # seems the most common way is ...
+            # ... overriding the world background
+            """
+            world = bpy.data.worlds['World']
+            background = world.node_tree.nodes['Background']
+            background.inputs[0].default_value[:3] = self.ambientLightColor.toTuple()
+            background.inputs[1].default_value = 5.
+            """
+            # but you can just do that once ... what if I want to load multiple map cfgs at a time?
+            lightName = filename+' Ambient'
+            lightData = bpy.data.lights.new(name=lightName, type='SUN')
+            lightData.energy = 20       # ?
+            lightData.color = self.ambientLightColor.toTuple()
+            lightData.angle = math.pi
+            lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
+            #lightObj.matrix_world = global_matrix
+            lightPos = (
+                cornerPos[0] / 28 + 3,
+                cornerPos[2] / 24,
+                -cornerPos[1] / 28
+            )
+            lightObj.location = lightPos[0], lightPos[1], lightPos[2]
+            self.ambLightObj = lightObj
+
+
+            # setup bg mesh mat
+
+            bgMat = bpy.data.materials.new(filename + ' Bg Mat')
+            bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
+            bgMatWrap.use_nodes = True
+
+            bsdf = bgMat.node_tree.nodes['Principled BSDF']
+            bgMixNode = bgMat.node_tree.nodes.new('ShaderNodeMixRGB')
+            bgMixNode.location = (-200, 0)
+            bgMixNode.inputs[1].default_value[:3] = self.backgroundColors[0].toTuple()
+            bgMixNode.inputs[2].default_value[:3] = self.backgroundColors[1].toTuple()
+            bgMat.node_tree.links.new(bsdf.inputs['Base Color'], bgMixNode.outputs[0])
+
+            bgMapRangeNode = bgMat.node_tree.nodes.new('ShaderNodeMapRange')
+            bgMapRangeNode.location = (-400, 0)
+            bgMapRangeNode.inputs['From Min'].default_value = 20.
+            bgMapRangeNode.inputs['From Max'].default_value = -20.
+            bgMapRangeNode.inputs['To Min'].default_value = 0.
+            bgMapRangeNode.inputs['To Max'].default_value = 1.
+            bgMat.node_tree.links.new(bgMixNode.inputs['Fac'], bgMapRangeNode.outputs[0])
+
+            bgSepNode = bgMat.node_tree.nodes.new('ShaderNodeSeparateXYZ')
+            bgSepNode.location = (-600, 0)
+            bgMat.node_tree.links.new(bgMapRangeNode.inputs['Value'], bgSepNode.outputs['Z'])
+
+            bgGeomNode = bgMat.node_tree.nodes.new('ShaderNodeNewGeometry')
+            bgGeomNode.location = (-800, 0)
+            bgMat.node_tree.links.new(bgSepNode.inputs['Vector'], bgGeomNode.outputs['Position'])
+
+
+            # ... but the most common way of doing a skybox in blender is ...
+            # ... overriding the world background
+            # so ... what to do.
+            # just put a big sphere around the outside?
+            #  but how come when I do this, the sphere backface-culls, even when backface-culling is disabled?
+            #  why does alpha not work when alpha-clipping or alpha-blending is enabled?
+            #  and why did the goblin turn on the stove?
+            # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
+            #  or just make a background sphere ...
+            # https://blender.stackexchange.com/questions/93298/create-a-uv-sphere-object-in-blender-from-python
+            bgmesh = bpy.data.meshes.new(filename + ' Bg')
+            bgmesh.materials.append(bgMat)
+            bgmeshObj = bpy.data.objects.new(bgmesh.name, bgmesh)
+            # center 'y' is wayyy up ...
+            #bgmeshObj.location = self.center[0], self.center[1], self.center[2]
+            bgmeshObj.location = 5, 5, 5
+            bgmeshObj.scale = 20., 20., 20.
+
+            # make the mesh a sphere and smooth
+            # do this before objects.link ... ?
+            import bmesh
+            bm = bmesh.new()
+            bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=5)
+            # normal_flip not working?
+            for f in bm.faces:
+                f.normal_flip()
+            bm.normal_update()
+
+            bm.to_mesh(bgmeshObj.data)
+            bm.free()
+
+            self.bgmeshObj = bgmeshObj
+            # create-object for the bmesh
+            #view_layer = context.view_layer
+            #collection = view_layer.active_layer_collection.collection
+            #collection.objects.link(bgmeshObj)
+            #bgmeshObj.select_set(True)
+
+            # this doesn't work unless the uvsphere is already attached ...
+            #bpy.ops.object.modifier_add(type='SUBSURF')
+            #bpy.ops.object.shade_smooth()
+
+
+
 
     # old write code ... but TODO only write what you have or something i guess idk
     def writeHeader(self):
@@ -811,12 +960,15 @@ class Map(object):
             # 0x11
             'colorPalImgs',
             # 0x1f
-            'grayPals',
+            'grayPalImgs',
             # 0x19
             'dirLightColors',
             'dirLightDirs',
             'ambientLightColor',
             'backgroundColors',
+            'dirLightObjs',
+            'ambLightObj',
+            'bgmeshObj',
             # 0x1a
             'terrainSize',
             'terrainTiles',
@@ -1008,7 +1160,9 @@ def load(context,
         newObjects = []  # put new objects here
 
         view_layer = context.view_layer
-        collection = view_layer.active_layer_collection.collection
+        #collection = view_layer.active_layer_collection.collection
+        collection = bpy.data.collections.new(filename)
+        bpy.context.scene.collection.children.link(collection)
 
         ### make the material for textured faces
 
@@ -1273,138 +1427,13 @@ def load(context,
         bm.free()
 
 
-        # directional lights
-        # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
-        for i in range(3):
-            lightName = filename + ' Light '+str(i)
-            lightData = bpy.data.lights.new(name=lightName, type='SUN')
-            lightData.energy = 20       # ?
-            lightData.color = map.dirLightColors.ithToTuple(i)
-            lightData.angle = math.pi
-            lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
-            # matrix_world rotate y- to z+ ...
-            lightObj.matrix_world = global_matrix
-            # alright, how come with mesh, I can assign the matrix_world then assign the scale, and it rotates scales
-            # but with this light, I apply matrix_world then I apply location, and the matrix_world is gone?
-            # python is a languge without any block scope and with stupid indent rules.  it encourages polluting function namespaces.
-            lightPos = (
-                map.bbox[0][0] / global_scale_x + i,
-                map.bbox[0][2] / global_scale_y,
-                -map.bbox[0][1] / global_scale_z
-            )
-            lightObj.location = lightPos[0], lightPos[1], lightPos[2]
-            # calculate lightObj Euler angles by dirLightDirs
-            # TODO figure out which rotates which...
-            dir = map.dirLightDirs[i].toTuple()
-            print('light dir', dir)
-            eulerAngles = (
-                math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), dir[1]), # pitch
-                math.atan2(dir[2], dir[0]),  # yaw
-                0
-               )
-            lightObj.rotation_euler = eulerAngles[0], eulerAngles[1], eulerAngles[2]
-            # hmm, this doesn't update like some random page said.
-            #view_layer.update() # should transform the lightObj's (location, rotation_euler, scale) to its ... matrix?  matrix_locl? matrix_world? where int hee world is this documented?
-            # setting matrix_world clears (location, rotation_euler, scale) ...
-            # so does transforming it via '@'
-            # even after calling view_layer.update()
-            # best answer yet: https://blender.stackexchange.com/a/169424
-            newObjects.append(lightObj)
-
-
-        # ambient light?  in blender?
-        # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
-        # seems the most common way is ...
-        # ... overriding the world background
-        """
-        world = bpy.data.worlds['World']
-        background = world.node_tree.nodes['Background']
-        background.inputs[0].default_value[:3] = map.ambientLightColor.toTuple()
-        background.inputs[1].default_value = 5.
-        """
-        # but you can just do that once ... what if I want to load multiple map cfgs at a time?
-        lightName = filename+' Ambient'
-        lightData = bpy.data.lights.new(name=lightName, type='SUN')
-        lightData.energy = 20       # ?
-        lightData.color = map.ambientLightColor.toTuple()
-        lightData.angle = math.pi
-        lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
-        lightObj.matrix_world = global_matrix
-        lightPos = (
-            map.bbox[0][0] / global_scale_x + 3,
-            map.bbox[0][2] / global_scale_y,
-            -map.bbox[0][1] / global_scale_z
-        )
-        lightObj.location = lightPos[0], lightPos[1], lightPos[2]
-        newObjects.append(lightObj)
-
-
-        # setup bg mesh mat
-
-        bgMat = bpy.data.materials.new(filename + ' Bg Mat')
-        bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
-        bgMatWrap.use_nodes = True
-
-        bsdf = bgMat.node_tree.nodes['Principled BSDF']
-        bgMixNode = bgMat.node_tree.nodes.new('ShaderNodeMixRGB')
-        bgMixNode.location = (-200, 0)
-        bgMixNode.inputs[1].default_value[:3] = map.backgroundColors[0].toTuple()
-        bgMixNode.inputs[2].default_value[:3] = map.backgroundColors[1].toTuple()
-        bgMat.node_tree.links.new(bsdf.inputs['Base Color'], bgMixNode.outputs[0])
-
-        bgMapRangeNode = bgMat.node_tree.nodes.new('ShaderNodeMapRange')
-        bgMapRangeNode.location = (-400, 0)
-        bgMapRangeNode.inputs['From Min'].default_value = 20.
-        bgMapRangeNode.inputs['From Max'].default_value = -20.
-        bgMapRangeNode.inputs['To Min'].default_value = 0.
-        bgMapRangeNode.inputs['To Max'].default_value = 1.
-        bgMat.node_tree.links.new(bgMixNode.inputs['Fac'], bgMapRangeNode.outputs[0])
-
-        bgSepNode = bgMat.node_tree.nodes.new('ShaderNodeSeparateXYZ')
-        bgSepNode.location = (-600, 0)
-        bgMat.node_tree.links.new(bgMapRangeNode.inputs['Value'], bgSepNode.outputs['Z'])
-
-        bgGeomNode = bgMat.node_tree.nodes.new('ShaderNodeNewGeometry')
-        bgGeomNode.location = (-800, 0)
-        bgMat.node_tree.links.new(bgSepNode.inputs['Vector'], bgGeomNode.outputs['Position'])
-
-
-        # ... but the most common way of doing a skybox in blender is ...
-        # ... overriding the world background
-        # so ... what to do.
-        # just put a big sphere around the outside?
-        #  but how come when I do this, the sphere backface-culls, even when backface-culling is disabled?
-        #  why does alpha not work when alpha-clipping or alpha-blending is enabled?
-        #  and why did the goblin turn on the stove?
-        # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
-        #  or just make a background sphere ...
-        # https://blender.stackexchange.com/questions/93298/create-a-uv-sphere-object-in-blender-from-python
-        bgmesh = bpy.data.meshes.new(filename + ' Bg')
-        bgmesh.materials.append(bgMat)
-        bgmeshObj = bpy.data.objects.new(bgmesh.name, bgmesh)
-        # center 'y' is wayyy up ...
-        #bgmeshObj.location = map.center[0], map.center[1], map.center[2]
-        bgmeshObj.location = 5, 5, 5
-        bgmeshObj.scale = 20., 20., 20.
-
-        # make the mesh a sphere and smooth
-        # do this before objects.link ... ?
-        bm = bmesh.new()
-        bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=5)
-        # normal_flip not working?
-        for f in bm.faces:
-            f.normal_flip()
-        bm.normal_update()
-
-        bm.to_mesh(bgmeshObj.data)
-        bm.free()
-
-        # create-object for the bmesh
-        collection.objects.link(bgmeshObj)
-        bgmeshObj.select_set(True)
-
-        #bpy.ops.object.modifier_add(type='SUBSURF')
-        bpy.ops.object.shade_smooth()
+        if hasattr(map, 'dirLightColors'):
+            for obj in map.dirLightObjs:
+                obj.matrix_world = global_matrix
+                newObjects.append(obj)
+            newObjects.append(map.ambLightObj)
+            map.ambLightObj.matrix_world = global_matrix
+            newObjects.append(map.bgmeshObj)
 
         # flip normals ... ?
         #bpy.ops.object.editmode_toggle()
@@ -1418,6 +1447,14 @@ def load(context,
         for obj in newObjects:
             collection.objects.link(obj)
             obj.select_set(True)
+       
+        # has to be set after ... bleh ...
+        #if hasattr(map, 'bgmeshObj'):
+            # how come this works if I add the bgmeshObj earlier? 
+            # RuntimeError: Operator bpy.ops.object.modifier_add.poll() Context missing active object
+            #map.bgmeshObj.select_set(True)
+            #bpy.ops.object.modifier_add(type='SUBSURF')
+            #bpy.ops.object.shade_smooth()
 
         view_layer.update()
 

@@ -55,6 +55,8 @@ Design TODO
 - make one of these rootObjs' per map state? duplicate meshes? etc?
 - eventually map all of a GNS file's resources to objects,
 - - then collect these objects under parent objects per-mapstate-configuration.
+- flip normals on the background gradient sphere
+- smooth shading on it too
 
 ## Sources:
 
