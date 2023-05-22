@@ -705,6 +705,10 @@ class Map(object):
             raise "raise"
 
     
+    # TODO don't set upon init
+    # instead cycle thru *all* configs
+    # and make a new scene/group/whatever for each
+    # reuse blender objs <-> fft resources as you go
     def setConfig(self, mapConfigIndex, dayNight, weather):
         print("setting config", mapConfigIndex, dayNight, weather)
         # now pick one ...
