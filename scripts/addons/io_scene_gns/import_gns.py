@@ -1557,8 +1557,9 @@ def load(context,
                 if first_object.visible_get() != visibility:
                     bpy.ops.object.hide_collection(context_override, collection_index=index, toggle=True)
 
-        for (i, c) in enumerate(map.collections):
-            set_collection_viewport_visibility(context, c, visibility=(True if i == 0 else False))
+        for i in range(1,len(map.collections)):
+            set_collection_viewport_visibility(context, map.collections[i], visibility=False)
+        set_collection_viewport_visibility(context, map.collections[0], visibility=True)
 
         # ... and those 50 lines of code are what is needed to just hide an object in the viewport
 
