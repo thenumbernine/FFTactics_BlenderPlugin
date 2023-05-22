@@ -1023,26 +1023,41 @@ class Map(object):
         global_matrix
     ):
         progress.enter_substeps(1, "Importing GNS %r..." % filepath)
-        
+
         self.filepath = filepath
         self.mapdir = os.path.dirname(filepath)
         self.filename = os.path.basename(filepath)
         self.namesuffix = os.path.splitext(self.filename)[0]
         self.readGNS(filepath)
-        
+
         progress.enter_substeps(3, "Parsing GNS file...")
 
-        for mapState in self.allMapStates:
+        self.collections = []
+        for (i, mapState) in enumerate(self.allMapStates):
             self.setMapState(mapState)
-            self.buildCollection(
-                context,
-                progress,
-                self.namesuffix + ' ' + str(mapState),
-                global_scale_x,
-                global_scale_y,
-                global_scale_z,
-                global_matrix)
-        
+            mapConfigIndex, dayNight, weather = mapState
+            collectionName = (self.namesuffix
+                + ' cfg=' + str(mapConfigIndex)
+                + ' ' + ('night' if dayNight else 'day')
+                + ' weather=' + str(weather)
+            )
+            collection = self.buildCollection(
+                    context,
+                    progress,
+                    collectionName,
+                    global_scale_x,
+                    global_scale_y,
+                    global_scale_z,
+                    global_matrix)
+            #if i > 0:
+                # when I set 'hide_viewport' here, un-clicking it in the scene collection panel doesn't reveal it ...
+                #collection.hide_viewport = True
+                # AttributeError: 'Collection' object has no attribute 'exclude'
+                #collection.exclude = True
+                # but reading this makes it sound like you can't do this until all collections are settled
+                # https://blenderartists.org/t/show-hide-collection-blender-beta-2-80/1141768
+            self.collections.append(collection)
+
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
 
@@ -1087,7 +1102,7 @@ class Map(object):
         # map from sector back to resource filename
         self.filenameForSector = {}
         for (sector, resFn) in zip(allSectors, allResFilenames):
-            self.filenameForSector[sector] = resFn 
+            self.filenameForSector[sector] = resFn
 
         #print(allSectors)
         #print(allRes)
@@ -1181,10 +1196,10 @@ class Map(object):
         print('textureFilenames', list(map(getPathForRes, self.texRess)))
 
 
-        # update fields ... 
+        # update fields ...
         # ... tho maybe do this another way ...
         # TODO instead of setFields / getattr, how about a 'getField' method that does the same?
-        
+
         # copy texture resource fields
 
         if len(self.texRess) == 0:
@@ -1295,7 +1310,7 @@ class Map(object):
         ### make the material for untextured faces
 
         matWOTex = bpy.data.materials.new(self.namesuffix + ' Mat Untex')
-        uniqueMaterials[matWOTex.name] = matWOTex 
+        uniqueMaterials[matWOTex.name] = matWOTex
         matWOTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWOTex, is_readonly=False)
         matWOTexWrap.use_nodes = True
         matWOTexWrap.specular = 0
@@ -1450,16 +1465,18 @@ class Map(object):
         for obj in newObjects:
             collection.objects.link(obj)
             obj.select_set(True)
-       
+
         # has to be set after ... bleh ...
         #if hasattr(self, 'bgmeshObj'):
-            # how come this works if I add the bgmeshObj earlier? 
+            # how come this works if I add the bgmeshObj earlier?
             # RuntimeError: Operator bpy.ops.object.modifier_add.poll() Context missing active object
             #self.bgmeshObj.select_set(True)
             #bpy.ops.object.modifier_add(type='SUBSURF')
             #bpy.ops.object.shade_smooth()
 
         view_layer.update()
+
+        return collection
 
     def polygons(self):
         return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
@@ -1484,7 +1501,7 @@ def load(context,
         if bpy.ops.object.select_all.poll():
             bpy.ops.object.select_all(action='DESELECT')
 
-        Map(context,
+        map = Map(context,
             progress,
             filepath,
             global_scale_x,
@@ -1492,5 +1509,57 @@ def load(context,
             global_scale_z,
             global_matrix)
 
+
+        # why is everything in blender api so ridiculously difficult to do...
+        # https://blenderartists.org/t/show-hide-collection-blender-beta-2-80/1141768
+        def get_viewport_ordered_collections(context):
+            def fn(c, out, addme):
+                if addme:
+                    out.append(c)
+                for c1 in c.children:
+                    out.append(c1)
+                for c1 in c.children:
+                    fn(c1, out, False)
+            collections = []
+            fn(context.scene.collection, collections, True)
+            return collections
+
+        def get_area_from_context(context, area_type):
+            area = None
+            for a in context.screen.areas:
+                if a.type == area_type:
+                    area = a
+                    break
+            return area
+
+        def set_collection_viewport_visibility(context, targetCollection, visibility=True):
+            collections = get_viewport_ordered_collections(context)
+            collection = None
+            index = 0
+            for c in collections:
+                if c == targetCollection:
+                    collection = c
+                    break
+                index += 1
+            if collection is None:
+                return
+            first_object = None
+            if len(collection.objects) > 0:
+                first_object = collection.objects[0]
+            try:
+                bpy.ops.object.hide_collection(context, collection_index=index, toggle=True)
+                if first_object.visible_get() != visibility:
+                    bpy.ops.object.hide_collection(context, collection_index=index, toggle=True)
+            except:
+                context_override = context.copy()
+                context_override['area'] = get_area_from_context(context, 'VIEW_3D')
+                bpy.ops.object.hide_collection(context_override, collection_index=index, toggle=True)
+                if first_object.visible_get() != visibility:
+                    bpy.ops.object.hide_collection(context_override, collection_index=index, toggle=True)
+
+        for (i, c) in enumerate(map.collections):
+            set_collection_viewport_visibility(context, c, visibility=(True if i == 0 else False))
+
+        # ... and those 50 lines of code are what is needed to just hide an object in the viewport
 
     return {'FINISHED'}
