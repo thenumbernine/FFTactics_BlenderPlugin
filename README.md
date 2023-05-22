@@ -23,40 +23,37 @@ Click the checkbox and you should now find a new option under File -> Import:
 
 ## Progress
 
-The mesh is importing.
+All combinations of map, day/night, and weather are imported as collections.
 
-The terrain tiles are imported and custom per-face attributes are stored.  These can be accessed from 'Geometry Nodes' -> 'Face' -> scroll right in list of face attributes to see all the extra custom ones.
+Each collection contains a 3D mesh with textured and untextured polygons.
 
-The 3 directional lights' colors are imported as sun lights.
+The 3D mesh contains a material per palette.  These materials are made of a image texture node of the 4-bpp indexed color image, 
+which connects into an image texture node of the 16-pixels-wide RGBA palette texture,
+which finally connects into the BSDF shader.
+
+Each collection also contains a terrain mesh.
+
+The terrain mesh faces are imported with custom per-face attributes assigned to them.
+These custom attributes can be accessed from 'Geometry Nodes' -> 'Face' -> scroll right in list of face attributes to see all the extra custom ones.
+
+Each collection also contains the 3 directional lights' colors are imported as sun lights.
 The directions are still meh.
 
-The map ambient light is imported as a sun light too, but I know sun light is directional, idk where to set ambient-light in materials in blender... 
+Each collection also contains a light representing the map ambient light.  It's a sun light too for now, but I know sun light is directional, idk where to set ambient-light in materials in blender... 
 
 The background is imported as a sphere around the map, with gradient material.
 
 TODO:
-- Ambient is an extra sun light ... but sun is directional and ambient is not.  How should it be specified?
+- ambient as real ambient / material property, not as a sun light.
+- background sphere needs to have its normals flipped, and be smooth shaded.
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
 - light directions as blender-sun-light rotations, and just figuring out blender's transform system.
 - ... how to organize all transforms?  should I work in mesh vertex coords so blocks are 28x24x28?  should I work in tile coords?  where to put the transforms?  z-up vs y-up?  matrix local vs matrix global vs location rotation euler vs scale...
 - should terrain custom face attributes be integers or strings?  would be nice to set them to dropdowns for selecting enumerations.
 - if I'm writing a plugin for blender IO, why not also write a plugin for face-picking that pops up editing the different custom-face attributes?
-- preserve situations?  right now it's just reading the first texture from the first situation.
-- - instead it could just read in everything, multiple objects / layers / scenes / whatever per map configuration, read and write all at once instead of picking your configuration upon file load.
+- make use of global-scale argument, which I'm not using.  or should I use the units feature in Blender?  how does that work?
+- likewise, global transform is flipping y-up to z-up ... is there a config for this in Blender?
 - exporting.
-
-Design TODO
-- make a root obj of the meshObj/tmeshObj/lights
-- put meshObj under it with scale (1/28, 1/24, 1/28) so it is proportional to the terrain geom
-- put tmeshObj under it with no scale
-- give root obj a scale of (1, 24/28, 1) so the horz/vert ratio is correct
-- put lightObjs under ... which one ?
-- also ambient has to be a light now, or a meshObj mat property?
-- make one of these rootObjs' per map state? duplicate meshes? etc?
-- eventually map all of a GNS file's resources to objects,
-- - then collect these objects under parent objects per-mapstate-configuration.
-- flip normals on the background gradient sphere
-- smooth shading on it too
 
 ## Sources:
 
