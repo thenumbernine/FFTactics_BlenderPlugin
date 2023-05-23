@@ -294,10 +294,18 @@ class TwoNibbles(FFTStruct):
 
 # GaneshaDx: texture resources:
 RESOURCE_TEXTURE = 0x17
+
 # GaneshaDx: mesh resources:
+# this is the init mesh, looks like it is always used unless overridden ...
 RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
+
+# ... this is the override
+# screenshot from ... ? shows RESOURCE_REPL with prim mesh, pal, lights, terrain, tex.anim., and pal.anim.
 RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
+
+# this is just pal and lights
 RESOURCE_MESH_ALT = 0x30 # Used with many index combos. Usually a small file.
+
 # GaneshaDx: other stuff I guess
 RESOURCE_EOF = 0x31 # GaneshaDx calls this one "Padded" ... as in file-padding?  as in EOF record?
 RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
@@ -405,7 +413,145 @@ def palImgToBytes(palImg):
         ))
     return data
 
-class MeshBlob(ResourceBlob):
+class Chunk(object):
+    def __init__(self, data):
+        self.data = data
+        self.ofs = 0
+
+    def read(self, cl):
+        res = cl.from_buffer_copy(self.data[self.ofs:self.ofs+sizeof(cl)])
+        self.ofs += sizeof(cl)
+        return res
+
+class VisAngleChunk(Chunk):
+    def __init__(self, data):
+        super().__init__(data)
+        # reading chunk 0x2c
+        # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
+        self.triTexVisAngles = self.read(c_uint16 * 512)
+        # ... and this is a 1536 byte block always
+        self.quadTexVisAngles = self.read(c_uint16 * 768)
+        self.triUntexVisAngles = self.read(c_uint16 * 64)
+        self.quadUntexVisAngles = self.read(c_uint16 * 256)
+        # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
+        # GaneshaDx has these constants:
+        #MaxTexturedTriangles = 360
+        #MaxTexturedQuads = 710
+        #MaxUntexturedTriangles = 64
+        #MaxUntexturedQuads = 256
+        # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
+        # done reading chunk 0x2c
+
+
+# writing depends on the existence of the blender mesh
+# and the blender mesh is going to have custom face attributes
+# and only one of those custom face attributes is going to be the visangles
+# so that means load the MeshChunk after visAngles (and all other chunks) are loaded
+class MeshChunk(Chunk):
+    # read the mesh chunk
+    def __init__(self, data, visAngleChunk):
+        super().__init__(data)
+        
+        if visAngleChunk == None:
+            print("reading a mesh without visAngles ... expect an error in some corner case I forgot to accomodate for")
+        
+        # reading from chunk 0x10
+        self.hdr = self.read(MeshHeader)
+        self.triTexVtxs = self.read(VertexPos * (3 * self.hdr.numTriTex))
+        self.quadTexVtxs = self.read(VertexPos * (4 * self.hdr.numQuadTex))
+        self.triUntexVtxs = self.read(VertexPos * (3 * self.hdr.numTriUntex))
+        self.quadUntexVtxs = self.read(VertexPos * (4 * self.hdr.numQuadUntex))
+        self.triTexNormals = self.read(Normal * (3 * self.hdr.numTriTex))
+        self.quadTexNormals = self.read(Normal * (4 * self.hdr.numQuadTex))
+        self.triTexFaces = self.read(TriTexFace * self.hdr.numTriTex)
+        self.quadTexFaces = self.read(QuadTexFace * self.hdr.numQuadTex)
+        self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
+        self.quadUntexUnknowns = self.read(c_uint32 * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
+        self.triTexTilePos = self.read(TilePos * self.hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
+        self.quadTexTilePos = self.read(TilePos * self.hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
+        # and that's it from chunk 0x10
+
+        # now for aux calcs
+        # this is based on 0x10 (mesh) and 0x2c (visAngles)
+        # maybe cache here instead of inside MeshChunk if I was using visAngles ....
+        # should I even store this / allow edits?
+        # or should I try to auto calc it upon export?
+        bboxMin = [math.inf] * 3
+        bboxMax = [-math.inf] * 3
+        for v in (list(self.triTexVtxs) 
+            + list(self.quadTexVtxs) 
+            + list(self.triUntexVtxs) 
+            + list(self.quadUntexVtxs)):
+            v = v.toTuple()
+            for i in range(3):
+                bboxMin[i] = min(bboxMin[i], v[i])
+                bboxMax[i] = max(bboxMax[i], v[i])
+        self.bbox = (tuple(bboxMin), tuple(bboxMax))
+        self.center = [None] * 3
+        for i in range(3):
+            self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
+        self.center = tuple(self.center)
+
+        # still not sure if it's worth saving this in its own structure ...
+        self.triTexs = []
+        for i in range(self.hdr.numTriTex):
+            self.triTexs.append(TriTex(
+                self.triTexVtxs[3*i:3*(i+1)],
+                self.triTexNormals[3*i:3*(i+1)],
+                self.triTexFaces[i],
+                self.triTexTilePos[i],
+                visAngleChunk.triTexVisAngles[i] if visAngleChunk != None else None
+            ))
+
+        self.quadTexs = []
+        for i in range(self.hdr.numQuadTex):
+            self.quadTexs.append(QuadTex(
+                self.quadTexVtxs[4*i:4*(i+1)],
+                self.quadTexNormals[4*i:4*(i+1)],
+                self.quadTexFaces[i],
+                self.quadTexTilePos[i],
+                visAngleChunk.quadTexVisAngles[i] if visAngleChunk != None else None
+            ))
+
+        self.triUntexs = []
+        for i in range(self.hdr.numTriUntex):
+            self.triUntexs.append(TriUntex(
+                self.triUntexVtxs[3*i:3*(i+1)],
+                self.triUntexUnknowns[i],
+                visAngleChunk.triUntexVisAngles[i] if visAngleChunk != None else None
+            ))
+
+        self.quadUntexs = []
+        for i in range(self.hdr.numQuadUntex):
+            self.quadUntexs.append(QuadUntex(
+                self.quadUntexVtxs[4*i:4*(i+1)],
+                self.quadUntexUnknowns[i],
+                visAngleChunk.quadUntexVisAngles[i] if visAngleChunk != None else None
+            ))
+
+
+    def toBin(self):
+        # TODO recalc mesh based on blender mesh
+        data = bytes(self.hdr)
+        for polygon in self.polygons():
+            for v in polygon.vtxs:
+                data += bytes(v.pos)
+        for polygon in self.triTexs + self.quadTexs:
+            for v in polygon.vtxs:
+                data += bytes(v.normal)
+        for polygon in self.triTexs + self.quadTexs:
+            if polygon.texFace.unk3 == 0:
+                polygon.texFace.unk3 = 120
+                polygon.texFace.unk6_2 = 3
+            data += bytes(polygon.texFace)
+        for polygon in self.triUntexs + self.quadUntexs:
+            data += bytes(polygon.unknown)
+        for polygon in self.triTexs + self.quadTexs:
+            data += bytes(polygon.tilePos)
+        return data
+
+# technically this is a non-texture resource, i.e. anything else ... mesh, pal, light, anything ...
+class NonTexBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
         data = self.readData()
@@ -455,40 +601,13 @@ class MeshBlob(ResourceBlob):
             ofs += sizeof(cl)
             return res
 
-        # reading from chunk 0x10
-        triTexVtxs = None
-        if setChunk(0x10):
-            hdr = read(MeshHeader)
-            triTexVtxs = read(VertexPos * (3 * hdr.numTriTex))
-            quadTexVtxs = read(VertexPos * (4 * hdr.numQuadTex))
-            triUntexVtxs = read(VertexPos * (3 * hdr.numTriUntex))
-            quadUntexVtxs = read(VertexPos * (4 * hdr.numQuadUntex))
-            triTexNormals = read(Normal * (3 * hdr.numTriTex))
-            quadTexNormals = read(Normal * (4 * hdr.numQuadTex))
-            triTexFaces = read(TriTexFace * hdr.numTriTex)
-            quadTexFaces = read(QuadTexFace * hdr.numQuadTex)
-            triUntexUnknowns = read(c_uint32 * hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
-            quadUntexUnknowns = read(c_uint32 * hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
-            triTexTilePos = read(TilePos * hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
-            quadTexTilePos = read(TilePos * hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
-            # and that's it from chunk 0x10
-
-        # reading chunk 0x2c
+        self.visAngleChunk = None
         if setChunk(0x2c, 0x380):
-            # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
-            triTexVisAngles = read(c_uint16 * 512)
-            # ... and this is a 1536 byte block always
-            quadTexVisAngles = read(c_uint16 * 768)
-            triUntexVisAngles = read(c_uint16 * 64)
-            quadUntexVisAngles = read(c_uint16 * 256)
-            # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
-            # GaneshaDx has these constants:
-            #MaxTexturedTriangles = 360
-            #MaxTexturedQuads = 710
-            #MaxUntexturedTriangles = 64
-            #MaxUntexturedQuads = 256
-            # why are GaneshaDx's textured tri and quad counts lower than original python Ganesha's?
-            # done reading chunk 0x2c
+            self.visAngleChunk = VisAngleChunk(data)
+
+        self.meshChunk = None
+        if setChunk(0x10):
+            self.meshChunk = MeshChunk(data, self.visAngleChunk)
 
         # TODO put this method in sub-obj of chunk11
         # reading chunk 0x11
@@ -537,57 +656,6 @@ class MeshBlob(ResourceBlob):
                     level.append(row)
                 self.terrainTiles.append(level)
 
-        # now for aux calcs
-        if triTexVtxs != None:
-            bboxMin = [math.inf] * 3
-            bboxMax = [-math.inf] * 3
-            for v in list(triTexVtxs) + list(quadTexVtxs) + list(triUntexVtxs) + list(quadUntexVtxs):
-                v = v.toTuple()
-                for i in range(3):
-                    bboxMin[i] = min(bboxMin[i], v[i])
-                    bboxMax[i] = max(bboxMax[i], v[i])
-            self.bbox = (tuple(bboxMin), tuple(bboxMax))
-            self.center = [None] * 3
-            for i in range(3):
-                self.center[i] = .5 * (self.bbox[0][i] + self.bbox[1][i])
-            self.center = tuple(self.center)
-
-            # still not sure if it's worth saving this in its own structure ...
-            self.triTexs = []
-            for i in range(hdr.numTriTex):
-                self.triTexs.append(TriTex(
-                    triTexVtxs[3*i:3*(i+1)],
-                    triTexNormals[3*i:3*(i+1)],
-                    triTexFaces[i],
-                    triTexTilePos[i],
-                    triTexVisAngles[i]
-                ))
-
-            self.quadTexs = []
-            for i in range(hdr.numQuadTex):
-                self.quadTexs.append(QuadTex(
-                    quadTexVtxs[4*i:4*(i+1)],
-                    quadTexNormals[4*i:4*(i+1)],
-                    quadTexFaces[i],
-                    quadTexTilePos[i],
-                    quadTexVisAngles[i]
-                ))
-
-            self.triUntexs = []
-            for i in range(hdr.numTriUntex):
-                self.triUntexs.append(TriUntex(
-                    triUntexVtxs[3*i:3*(i+1)],
-                    triUntexUnknowns[i],
-                    triUntexVisAngles[i]
-                ))
-
-            self.quadUntexs = []
-            for i in range(hdr.numQuadUntex):
-                self.quadUntexs.append(QuadUntex(
-                    quadUntexVtxs[4*i:4*(i+1)],
-                    quadUntexUnknowns[i],
-                    quadUntexVisAngles[i]
-                ))
 
         # after bbox, create lights and bgs if their data exists. ..
         if hasattr(self, 'dirLightColors'):
@@ -795,6 +863,7 @@ class MeshBlob(ResourceBlob):
                 'unk1',
                 'unk5',
                 'unk6_2'
+                # TODO visAngles
                 # via terrain mesh
                 #'halfHeight',
                 #'slopeHeight',
@@ -844,31 +913,16 @@ class MeshBlob(ResourceBlob):
         file.close()
 
     def writeRes(self):
-        self.writePolygons()
+        self.writeMesh()
         self.writeVisAngles()
         self.writeColorPalettes()
         self.writeGrayPalettes()
         self.writeDirLights()
         self.writeTerrain()
 
-    def writePolygons(self):
-        data = bytes(self.meshHdr)
-        for polygon in self.polygons():
-            for v in polygon.vtxs:
-                data += bytes(v.pos)
-        for polygon in self.triTexs + self.quadTexs:
-            for v in polygon.vtxs:
-                data += bytes(v.normal)
-        for polygon in self.triTexs + self.quadTexs:
-            if polygon.texFace.unk3 == 0:
-                polygon.texFace.unk3 = 120
-                polygon.texFace.unk6_2 = 3
-            data += bytes(polygon.texFace)
-        for polygon in self.triUntexs + self.quadUntexs:
-            data += bytes(polygon.unknown)
-        for polygon in self.triTexs + self.quadTexs:
-            data += bytes(polygon.tilePos)
-        self.chunks[0x10] = data
+    def writeMesh(self):
+        if self.meshChunk != None:
+            self.chunks[0x10] = self.meshChunk.toBin()
 
     def writeVisAngles(self):
         triTexVisAngles = b''
@@ -1128,7 +1182,7 @@ class Map(object):
             elif (r.resourceType == RESOURCE_MESH_INIT
                 or r.resourceType == RESOURCE_MESH_REPL
                 or r.resourceType == RESOURCE_MESH_ALT):
-                self.allMeshRes.append(MeshBlob(
+                self.allMeshRes.append(NonTexBlob(
                     r,
                     self.filenameForSector[r.sector],
                     self.mapdir
@@ -1183,7 +1237,7 @@ class Map(object):
         # now set the map state to its default: arrangement==0, weather==0 night==0
         # what about maps that don't have this particular state?
         # how about instead, sort all states, and pick the one closest to this ...
-        self.meshRess = list(filter(
+        self.nonTexRess = list(filter(
             lambda r: r.record.getMapState() == mapState
                 # ... right?  I also want the init mesh in here, right?
                 or r.record.resourceType == RESOURCE_MESH_INIT,
@@ -1193,11 +1247,11 @@ class Map(object):
             self.allTexRes))
 
         # ... what order does the records() chunks[] system work?
-        #self.meshRess.reverse()
+        #self.nonTexRess.reverse()
 
         # map from mesh and texture record to mesh filename
         getPathForRes = lambda r: r.filename
-        print('meshFilenames', list(map(getPathForRes, self.meshRess)))
+        print('nonTextureFilenames', list(map(getPathForRes, self.nonTexRess)))
         print('textureFilenames', list(map(getPathForRes, self.texRess)))
 
 
@@ -1216,7 +1270,7 @@ class Map(object):
         # copy mesh resource fields
 
         def setResField(field):
-            for res in self.meshRess:
+            for res in self.nonTexRess:
                 if hasattr(res, field):
                     value = getattr(res, field)
                     # TODO should I ever have None be valid?
@@ -1224,6 +1278,8 @@ class Map(object):
                         setattr(self, field, value)
                         return
         for field in [
+            # 0x10
+            'meshChunk',
             # 0x11
             'colorPalImgs',
             # 0x1f
@@ -1240,13 +1296,6 @@ class Map(object):
             'terrainSize',
             'terrainTiles',
             'tmeshObj',
-            # aux
-            'bbox',
-            'center',
-            'triTexs',
-            'quadTexs',
-            'triUntexs',
-            'quadUntexs',
         ]:
             setResField(field)
 
@@ -1271,7 +1320,7 @@ class Map(object):
         uniqueMaterials = {}
 
         # Write out the indexed image with each 16 palettes applied to it
-        # This can only be done once the texture and color-palette MeshBlob have been read in
+        # This can only be done once the texture and color-palette NonTexBlob have been read in
         matPerPal = [None] * len(self.colorPalImgs)
         for (i, pal) in enumerate(self.colorPalImgs):
             # get image ...
@@ -1484,7 +1533,10 @@ class Map(object):
         return collection
 
     def polygons(self):
-        return self.triTexs + self.quadTexs + self.triUntexs + self.quadUntexs
+        return (self.meshChunk.triTexs 
+            + self.meshChunk.quadTexs
+            + self.meshChunk.triUntexs
+            + self.meshChunk.quadUntexs)
 
 ################################ import_gns ################################
 
