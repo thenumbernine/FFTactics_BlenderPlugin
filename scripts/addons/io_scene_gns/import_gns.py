@@ -62,7 +62,12 @@ class GNSRecord(FFTStruct):
 
         ('unknown6', c_uint16),
         ('sector', c_uint32),
-        ('size', c_uint32),         # file size, rounded up to 2k block
+        
+        # file size, rounded up to 2k block
+        # sector plus (size/2k) = next sector size
+        # but is there a relation between the file ext no? both are sequential in same order.  neither are 1:1 with indexes
+        ('size', c_uint32),
+        
         ('unknownA', c_uint32),
     ]
 
@@ -1027,7 +1032,7 @@ class Map(object):
         self.filepath = filepath
         self.mapdir = os.path.dirname(filepath)
         self.filename = os.path.basename(filepath)
-        self.namesuffix = os.path.splitext(self.filename)[0]
+        self.nameroot = os.path.splitext(self.filename)[0]
         self.readGNS(filepath)
 
         progress.enter_substeps(3, "Parsing GNS file...")
@@ -1036,7 +1041,7 @@ class Map(object):
         for (i, mapState) in enumerate(self.allMapStates):
             self.setMapState(mapState)
             mapConfigIndex, dayNight, weather = mapState
-            collectionName = (self.namesuffix
+            collectionName = (self.nameroot
                 + ' cfg=' + str(mapConfigIndex)
                 + ' ' + ('night' if dayNight else 'day')
                 + ' weather=' + str(weather)
@@ -1092,7 +1097,7 @@ class Map(object):
         # get all files in the same dir with matching prefix ...
         allResFilenames = []
         for fn in os.listdir(self.mapdir):
-            if fn != self.filename and os.path.splitext(fn)[0] == self.namesuffix:
+            if fn != self.filename and os.path.splitext(fn)[0] == self.nameroot:
                 allResFilenames.append(fn)
 
         # sort by filename suffix
@@ -1112,8 +1117,8 @@ class Map(object):
 
         self.allTexRes = []
         self.allMeshRes = []
-        for r in allRecords:
-            print('GNS record', r.sector, self.filenameForSector[r.sector], r.resourceType, r.arrangement, r.isNight, r.weather)
+        for (i, r) in enumerate(allRecords):
+            print('GNS record', r.sector, self.filenameForSector[r.sector], r.size, r.resourceType, r.arrangement, r.isNight, r.weather)
             if r.resourceType == RESOURCE_TEXTURE:
                 self.allTexRes.append(TexBlob(
                     r,
@@ -1309,7 +1314,7 @@ class Map(object):
 
         ### make the material for untextured faces
 
-        matWOTex = bpy.data.materials.new(self.namesuffix + ' Mat Untex')
+        matWOTex = bpy.data.materials.new(self.nameroot + ' Mat Untex')
         uniqueMaterials[matWOTex.name] = matWOTex
         matWOTexWrap = node_shader_utils.PrincipledBSDFWrapper(matWOTex, is_readonly=False)
         matWOTexWrap.use_nodes = True
@@ -1325,7 +1330,7 @@ class Map(object):
         for name, index in material_mapping.items():
             materials[index] = uniqueMaterials[name]
 
-        mesh = bpy.data.meshes.new(self.namesuffix + ' Mesh')
+        mesh = bpy.data.meshes.new(self.nameroot + ' Mesh')
         for material in materials:
             mesh.materials.append(material)
 
