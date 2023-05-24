@@ -47,6 +47,9 @@ Each collection also contains a light representing the map ambient light.  It's 
 The background is imported as a sphere around the map, with gradient material.
 
 TODO:
+- animated meshes
+- animated palettes
+- animated ... ? lights? idk.
 - ambient as real ambient / material property, not as a sun light.
 - background sphere needs to have its normals flipped, and be smooth shaded.
 - preserve quads? right now it triangulates everything, but GNS supports tris and quads.
