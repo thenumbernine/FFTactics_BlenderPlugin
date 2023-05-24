@@ -21,6 +21,9 @@ class FFTStruct(LittleEndianStructure):
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
 
+    def __str__(self):
+        return '{'+', '.join(x[0]+'='+str(getattr(self, x[0])) for x in self._fields_)+'}'
+
 # list of these in the GNS file that direct us to other resources
 # what to call it? resource? resource header?
 class GNSRecord(FFTStruct):
@@ -36,6 +39,7 @@ class GNSRecord(FFTStruct):
         # 'arrangement' eh?  'config' ?
         ('arrangement', c_uint8),
 
+        # for map002 it's always 0
         ('unknown3', c_uint8, 4),
 
         # 0..4 by the enums in python Ganesha
@@ -44,9 +48,10 @@ class GNSRecord(FFTStruct):
 
         # 0 = day
         # 1 = night
-        ('isNight', c_uint8, 1),    # day vs night?
+        ('isNight', c_uint8, 1),
 
-        ('resourceFlag', c_uint8),  # always 1?
+        # always 1?
+        ('resourceFlag', c_uint8),
 
         # 0x17 = texture
         # 0x2e = initial mesh
@@ -60,14 +65,18 @@ class GNSRecord(FFTStruct):
         # do I really need to break these into two separate reads?
         # I think GaneshaDx puts a threshold of 20 bytes ... meaning we shoudl always be able to access both structs...
 
+        # for map002 it's always 0x3333
         ('unknown6', c_uint16),
+
+        # disk sector
         ('sector', c_uint32),
-        
+
         # file size, rounded up to 2k block
-        # sector plus (size/2k) = next sector size
+        # sector plus roundup(size/2k) = next sector
         # but is there a relation between the file ext no? both are sequential in same order.  neither are 1:1 with indexes
         ('size', c_uint32),
-        
+
+        # for map002 always 0x88776655
         ('unknownA', c_uint32),
     ]
 
@@ -134,7 +143,7 @@ class TriTexFace(FFTStruct):
 assert sizeof(TriTexFace) == 10
 
 # textured-quad face information
-# matches TriTexFace
+# matches TriTexFace but with uv3
 class QuadTexFace(FFTStruct):
     _pack_ = 1
     _fields_ = [
@@ -488,6 +497,7 @@ class VisAngleChunk(Chunk):
             + quadUntexVisAngles
             + self.footer
         )
+
 # writing depends on the existence of the blender mesh
 # and the blender mesh is going to have custom face attributes
 # and only one of those custom face attributes is going to be the visangles
@@ -496,10 +506,10 @@ class MeshChunk(Chunk):
     # read the mesh chunk
     def __init__(self, data, res):
         super().__init__(data)
-        
+
         if res.visAngleChunk == None:
             print("reading a mesh without visAngles ... expect an error in some corner case I forgot to accomodate for")
-        
+
         # reading from chunk 0x10
         self.hdr = self.read(MeshHeader)
         self.triTexVtxs = self.read(VertexPos * (3 * self.hdr.numTriTex))
@@ -510,8 +520,13 @@ class MeshChunk(Chunk):
         self.quadTexNormals = self.read(Normal * (4 * self.hdr.numQuadTex))
         self.triTexFaces = self.read(TriTexFace * self.hdr.numTriTex)
         self.quadTexFaces = self.read(QuadTexFace * self.hdr.numQuadTex)
+
+        # all 1's for map001 map002 ... hmm
         self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
+        print('self.triUntexUnknowns', list(self.triUntexUnknowns))
         self.quadUntexUnknowns = self.read(c_uint32 * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
+        print('self.quadUntexUnknowns', list(self.quadUntexUnknowns))
+
         self.triTexTilePos = self.read(TilePos * self.hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
         self.quadTexTilePos = self.read(TilePos * self.hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
         # and that's it from chunk 0x10
@@ -523,9 +538,9 @@ class MeshChunk(Chunk):
         # or should I try to auto calc it upon export?
         bboxMin = [math.inf] * 3
         bboxMax = [-math.inf] * 3
-        for v in (list(self.triTexVtxs) 
-            + list(self.quadTexVtxs) 
-            + list(self.triUntexVtxs) 
+        for v in (list(self.triTexVtxs)
+            + list(self.quadTexVtxs)
+            + list(self.triUntexVtxs)
             + list(self.quadUntexVtxs)):
             v = v.toTuple()
             for i in range(3):
@@ -1153,7 +1168,7 @@ class Map(object):
         self.allTexRes = []
         self.allMeshRes = []
         for (i, r) in enumerate(allRecords):
-            print('GNS record', r.sector, self.filenameForSector[r.sector], r.size, r.resourceType, r.arrangement, r.isNight, r.weather, end='')
+            print('GNS record', self.filenameForSector[r.sector], str(r), end='')
             if r.resourceType == RESOURCE_TEXTURE:
                 print('...tex')
                 self.allTexRes.append(TexBlob(
@@ -1169,7 +1184,7 @@ class Map(object):
                     self.filenameForSector[r.sector],
                     self.mapdir
                 )
-                print('...res', [i for i, e in enumerate(res.header) if e != 0])
+                print('...res w/chunks '+str([i for i, e in enumerate(res.header) if e != 0]))
                 self.allMeshRes.append(res)
             # else keep it anywhere?
 
@@ -1245,11 +1260,12 @@ class Map(object):
 
         # copy texture resource fields
 
-        if len(self.texRess) == 0:
-            print("no texture...")
-            raise "raise"
-        res = self.texRess[0]
-        self.indexImg = res.indexImg
+        self.indexImg = None
+        if len(self.texRess) > 0:
+            self.indexImg = self.texRess[-1].indexImg
+            # what happens if we have more than one
+            if len(self.texRess) > 1:
+                print("hmm, we got "+str(len(self.texRess))+" textures...")
 
         # copy mesh resource fields
 
@@ -1293,47 +1309,49 @@ class Map(object):
 
         uniqueMaterials = {}
 
-        # Write out the indexed image with each 16 palettes applied to it
-        # This can only be done once the texture and color-palette NonTexBlob have been read in
-        # But once we have the texture, it's pretty much 1:1 with the color-palette
-        matPerPal = [None] * len(self.colorPalChunk.imgs)
-        for (i, pal) in enumerate(self.colorPalChunk.imgs):
-            # get image ...
-            # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-            mat = bpy.data.materials.new('GNS Mat Tex w Pal '+str(i))
-            uniqueMaterials[mat.name] = mat
-            matPerPal[i] = mat
-            matWrap = node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=False)
-            matWrap.use_nodes = True
+        matPerPal = None
+        if self.indexImg != None:
+            # Write out the indexed image with each 16 palettes applied to it
+            # This can only be done once the texture and color-palette NonTexBlob have been read in
+            # But once we have the texture, it's pretty much 1:1 with the color-palette
+            matPerPal = [None] * len(self.colorPalChunk.imgs)
+            for (i, pal) in enumerate(self.colorPalChunk.imgs):
+                # get image ...
+                # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
+                mat = bpy.data.materials.new('GNS Mat Tex w Pal '+str(i))
+                uniqueMaterials[mat.name] = mat
+                matPerPal[i] = mat
+                matWrap = node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=False)
+                matWrap.use_nodes = True
 
-            # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
-            palNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            palNode.image = pal
-            palNode.interpolation = 'Closest'
-            palNode.location = (-300, 0)
+                # https://blender.stackexchange.com/questions/157531/blender-2-8-python-add-texture-image
+                palNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
+                palNode.image = pal
+                palNode.interpolation = 'Closest'
+                palNode.location = (-300, 0)
 
-            indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
-            indexNode.image = self.indexImg
-            indexNode.interpolation = 'Closest'
-            indexNode.location = (-600, 0)
+                indexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
+                indexNode.image = self.indexImg
+                indexNode.interpolation = 'Closest'
+                indexNode.location = (-600, 0)
 
-            bsdf = mat.node_tree.nodes['Principled BSDF']
-            mat.node_tree.links.new(bsdf.inputs['Base Color'], palNode.outputs['Color'])
-            mat.node_tree.links.new(bsdf.inputs['Alpha'], palNode.outputs['Alpha'])
-            mat.node_tree.links.new(palNode.inputs['Vector'], indexNode.outputs['Color'])
+                bsdf = mat.node_tree.nodes['Principled BSDF']
+                mat.node_tree.links.new(bsdf.inputs['Base Color'], palNode.outputs['Color'])
+                mat.node_tree.links.new(bsdf.inputs['Alpha'], palNode.outputs['Alpha'])
+                mat.node_tree.links.new(palNode.inputs['Vector'], indexNode.outputs['Color'])
 
-            # setup transparency
-            # link texture alpha channel to Principled BSDF material
-            # https://blender.stackexchange.com/a/239948
-            matWrap.ior = 1.
-            matWrap.alpha = 1.
-            #mat.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
-            mat.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
+                # setup transparency
+                # link texture alpha channel to Principled BSDF material
+                # https://blender.stackexchange.com/a/239948
+                matWrap.ior = 1.
+                matWrap.alpha = 1.
+                #mat.blend_method = 'BLEND'  #the .obj loader has BLEND, but it makes everything semitransparent to the background grid
+                mat.blend_method = 'CLIP'    # ... and so far neither BLEND nor CLIP makes the tree transparent
 
-            # default specular is 1, which is shiny, which is ugly
-            matWrap.specular = 0.
-            matWrap.specular_tint = 0.
-            matWrap.roughness = 0.
+                # default specular is 1, which is shiny, which is ugly
+                matWrap.specular = 0.
+                matWrap.specular_tint = 0.
+                matWrap.roughness = 0.
 
 
         ### make the material for untextured faces
@@ -1374,7 +1392,9 @@ class Map(object):
         vi = 0
         vti = 0
         for s in self.polygons():
-            isTexd = isinstance(s, TriTex) or isinstance(s, QuadTex)
+            # if we didn't get a texture then we're not applying textures
+            # otherwise only apply to TriTex and QuadTex
+            isTexd = matPerPal != None and (isinstance(s, TriTex) or isinstance(s, QuadTex))
             vs = vertexesForPoly(s)
             n = len(vs)
             for v in vs:
@@ -1509,7 +1529,7 @@ class Map(object):
         return collection
 
     def polygons(self):
-        return (self.meshChunk.triTexs 
+        return (self.meshChunk.triTexs
             + self.meshChunk.quadTexs
             + self.meshChunk.triUntexs
             + self.meshChunk.quadUntexs)
