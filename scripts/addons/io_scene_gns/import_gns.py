@@ -1241,9 +1241,12 @@ class Map(object):
                 # ... right?  I also want the init mesh in here, right?
                 or r.record.resourceType == RESOURCE_MESH_INIT,
             self.allMeshRes))
-        self.texRess = list(filter(
-            lambda r: r.record.getMapState() == mapState,
-            self.allTexRes))
+        self.texRess = []
+        for i, r in enumerate(self.allTexRes):
+            # always keep the first one?  and pick the last one? same as init mesh?  not sure
+            # but map001 arrangement=1 day weather=0 is missing a texture ...
+            if r.record.getMapState() == mapState or i == 0:
+                self.texRess.append(r)
 
         # ... what order does the records() chunks[] system work?
         #self.nonTexRess.reverse()
@@ -1264,7 +1267,7 @@ class Map(object):
         if len(self.texRess) > 0:
             self.indexImg = self.texRess[-1].indexImg
             # what happens if we have more than one
-            if len(self.texRess) > 1:
+            if len(self.texRess) > 2:   # >2 since i'm adding tex 0 always
                 print("hmm, we got "+str(len(self.texRess))+" textures...")
 
         # copy mesh resource fields
