@@ -418,6 +418,15 @@ class Chunk(object):
         self.data = data
         self.ofs = 0
 
+    # read bytes
+    def readBytes(self, n=math.inf):
+        if self.ofs + n > len(self.data):
+            n = len(self.data) - self.ofs
+        res = self.data[self.ofs:self.ofs+n]
+        self.ofs += n
+        return res
+
+    # read a struct
     def read(self, cl):
         res = cl.from_buffer_copy(self.data[self.ofs:self.ofs+sizeof(cl)])
         self.ofs += sizeof(cl)
@@ -428,11 +437,13 @@ class VisAngleChunk(Chunk):
         super().__init__(data)
         # reading chunk 0x2c
         # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
+        self.header = self.readBytes(0x380)
         self.triTexVisAngles = self.read(c_uint16 * 512)
         # ... and this is a 1536 byte block always
         self.quadTexVisAngles = self.read(c_uint16 * 768)
         self.triUntexVisAngles = self.read(c_uint16 * 64)
         self.quadUntexVisAngles = self.read(c_uint16 * 256)
+        self.footer = self.readBytes()
         # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
         # GaneshaDx has these constants:
         #MaxTexturedTriangles = 360
@@ -447,7 +458,7 @@ class VisAngleChunk(Chunk):
     # (and the respective blender objects that go with it)
     # and then both can query it?
     # right now MeshChunk is taking responsibility for both.
-    def toBin(self, meshChunk, olddata):
+    def toBin(self, meshChunk):
         triTexVisAngles = b''
         for polygon in meshChunk.triTexs:
             triTexVisAngles += bytes(polygon.visAngles)
@@ -468,14 +479,13 @@ class VisAngleChunk(Chunk):
             quadUntexVisAngles += bytes(polygon.visAngles)
         quadUntexVisAngles += b'\0' * (512 - len(quadUntexVisAngles))
 
-        ofs = 0x380
         return (
-              olddata[:ofs]
+              self.header
             + triTexVisAngles
             + quadTexVisAngles
             + triUntexVisAngles
             + quadUntexVisAngles
-            + olddata[ofs + len(data):]
+            + self.footer
         )
 # writing depends on the existence of the blender mesh
 # and the blender mesh is going to have custom face attributes
@@ -625,6 +635,7 @@ class LightChunk(Chunk):
         self.dirLightDirs = self.read(VertexPos * 3) # could be Normal structure as well, but both get normalized to the same value in the end
         self.ambientLightColor = self.read(RGB888)
         self.backgroundColors = self.read(RGB888 * 2)
+        self.footer = self.readBytes()
         # done reading chunk 0x19
 
         cornerPos = (0,0,0)
@@ -770,15 +781,13 @@ class LightChunk(Chunk):
         #bpy.ops.object.modifier_add(type='SUBSURF')
         #bpy.ops.object.shade_smooth()
 
-    def toBin(self, olddata):
-        ofs = 0
+    def toBin(self):
         return (
-            olddata[:ofs]
-            + bytes(self.dirLightColors)
+              bytes(self.dirLightColors)
             + bytes(self.dirLightDirs)
             + bytes(self.ambientLightColors)
             + bytes(self.backgroundColors)
-            + olddata[ofs + len(data):]
+            + self.footer
         )
 
 class TerrainChunk(Chunk):
@@ -788,6 +797,7 @@ class TerrainChunk(Chunk):
         self.terrainSize = self.read(c_uint8 * 2)  # (sizeX, sizeZ)
         # weird, it leaves room for 256 total tiles for the first xz plane, and then the second is packed?
         terrainTileSrc = self.read(TerrainTile * (256 + self.terrainSize[0] * self.terrainSize[1]))
+        self.footer = self.readBytes()
         # done reading chunk 0x1a
 
         # convert the terrainTiles from [z * terrainSize[0] + x] w/padding for y to [y][z][x]
@@ -885,7 +895,7 @@ class TerrainChunk(Chunk):
 
         self.tmeshObj = tmeshObj
 
-    def toBin(self, olddata):
+    def toBin(self):
         # TODO read this back from the blender mesh
         assert len(self.terrainTiles) == 2
         self.terrainSize[0] = len(self.terrainTiles.tiles[0][0])
@@ -897,12 +907,8 @@ class TerrainChunk(Chunk):
                     data += bytes(tile)
             # Skip to second level of terrain data
             data += b'\0' * (sizeof(TerrainTile) * (256 - sizeX * sizeZ))
-        ofs = 0
-        return (
-            olddata[:ofs]
-            + data
-            + olddata[ofs + len(data):]
-        )
+        data += self.footer
+        return data
 
 # technically this is a non-texture resource, i.e. anything else ... mesh, pal, light, anything ...
 class NonTexBlob(ResourceBlob):
@@ -1016,11 +1022,8 @@ class NonTexBlob(ResourceBlob):
 
     def writeVisAngles(self):
         if self.visAngleChunk != None:
-            self.chunks[0x2c] = self.visAngleChunk.toBin(
-                self.meshChunk,
-                # TODO instead of olddata, just save the header/footer that we're not using, and paste it upon toBin()
-                self.chunks[0x2c]
-            )
+            # meshChunk has the polygons (but when I read from blender, will it?)
+            self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
 
     # TODO put this method in sub-obj of chunk11
     def writeColorPalettes(self):
@@ -1033,11 +1036,11 @@ class NonTexBlob(ResourceBlob):
 
     def writeDirLights(self):
         if self.lightChunk != None:
-            self.chunks[0x19] = self.lightChunk.toBin(self.chunks[0x19])
+            self.chunks[0x19] = self.lightChunk.toBin()
 
     def writeTerrain(self):
         if self.terrainChunk != None:
-            self.chunks[0x1a] = self.terrainChunk.toBin(self.chunks[0x1a])
+            self.chunks[0x1a] = self.terrainChunk.toBin()
 
 class TexBlob(ResourceBlob):
     width = 256
