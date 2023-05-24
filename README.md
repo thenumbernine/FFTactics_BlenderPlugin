@@ -60,6 +60,9 @@ TODO:
 - make use of global-scale argument, which I'm not using.  or should I use the units feature in Blender?  how does that work?
 - likewise, global transform is flipping y-up to z-up ... is there a config for this in Blender?
 - exporting.
+- - reading in mesh from the blender mesh
+- - reading in terrain from the blender mesh
+- - ...
 
 ## Sources:
 

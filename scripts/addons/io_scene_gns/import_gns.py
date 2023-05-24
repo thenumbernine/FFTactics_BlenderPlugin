@@ -594,39 +594,28 @@ class MeshChunk(Chunk):
             data += bytes(polygon.tilePos)
         return data
 
-class ColorPalChunk(Chunk):
+class PalChunk(Chunk):
     def __init__(self, data, res):
         super().__init__(data)
-        # reading chunk 0x11
-        self.colorPalImgs = [
+        # reading chunk
+        self.imgs = [
             palToImg(
-                res.filename + ' Color Pal Tex '+str(i),
+                res.filename + ' ' + self.ident + ' Pal Tex ' + str(i),
                 self.read(RGBA5551 * 16)
             ) for i in range(16)]
-        # done reading chunk 0x11
+        # done reading chunk
 
     def toBin(self):
         data = b''
-        for img in self.colorPalImgs:
+        for img in self.imgs:
             data += palImgToBytes(img)
         return data
 
-class GrayPalChunk(Chunk):
-    def __init__(self, data, res):
-        super().__init__(data)
-        # reading chunk 0x1f
-        self.grayPalImgs = [
-            palToImg(
-                res.filename + ' Gray Pal Tex '+str(i),
-                self.read(RGBA5551 * 16)
-            ) for i in range(16)]
-        # done reading chunk 0x1f
+class ColorPalChunk(PalChunk): # 0x11
+    ident = 'Color'
 
-    def toBin(self):
-        data = b''
-        for img in self.grayPalImgs:
-            data += palImgToBytes(img)
-        return data
+class GrayPalChunk(PalChunk):  # 0x1f
+    ident = 'Gray'
 
 class LightChunk(Chunk):
     def __init__(self, data, res):
@@ -961,13 +950,28 @@ class NonTexBlob(ResourceBlob):
         if chunks[0x1a]:
             self.terrainChunk = TerrainChunk(chunks[0x1a], self)
 
-    # old write code ... but TODO only write what you have or something i guess idk
-    def writeHeader(self):
-        offset = sizeof(self.header)
+    def write(self):
+        if self.meshChunk != None:
+            self.chunks[0x10] = self.meshChunk.toBin()
+        if self.visAngleChunk != None:
+            # meshChunk has the polygons (but when I read from blender, will it?)
+            # I could hold the reference to 'res' upon meshChunk ctor ... meh
+            self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
+        if self.colorPalChunk != None:
+            self.chunks[0x11] = self.colorPalChunk.toBin()
+        if self.grayPalChunk != None:
+            self.chunks[0x1f] = self.grayPalChunk.toBin()
+        if self.lightChunk != None:
+            self.chunks[0x19] = self.lightChunk.toBin()
+        if self.terrainChunk != None:
+            self.chunks[0x1a] = self.terrainChunk.toBin()
+
+        # now write the header
+        ofs = sizeof(self.header)
         for (i, chunk) in enumerate(self.chunks):
             if chunk:
-                self.header[i] = offset
-                offset += len(chunk)
+                self.header[i] = ofs
+                ofs += len(chunk)
             else:
                 self.header[i] = 0
         data = bytes(self.header)
@@ -982,40 +986,6 @@ class NonTexBlob(ResourceBlob):
         file = open(self.filepath, 'wb')
         file.write(data)
         file.close()
-
-    def writeRes(self):
-        self.writeMesh()
-        self.writeVisAngles()
-        self.writeColorPalettes()
-        self.writeGrayPalettes()
-        self.writeDirLights()
-        self.writeTerrain()
-
-    def writeMesh(self):
-        if self.meshChunk != None:
-            self.chunks[0x10] = self.meshChunk.toBin()
-
-    def writeVisAngles(self):
-        if self.visAngleChunk != None:
-            # meshChunk has the polygons (but when I read from blender, will it?)
-            self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
-
-    # TODO put this method in sub-obj of chunk11
-    def writeColorPalettes(self):
-        if self.colorPalChunk != None:
-            self.chunks[0x11] = self.colorPalChunk.toBin()
-
-    def writeGrayPalettes(self):
-        if self.grayPalChunk != None:
-            self.chunks[0x1f] = self.grayPalChunk.toBin()
-
-    def writeDirLights(self):
-        if self.lightChunk != None:
-            self.chunks[0x19] = self.lightChunk.toBin()
-
-    def writeTerrain(self):
-        if self.terrainChunk != None:
-            self.chunks[0x1a] = self.terrainChunk.toBin()
 
 class TexBlob(ResourceBlob):
     width = 256
@@ -1323,8 +1293,8 @@ class Map(object):
         # Write out the indexed image with each 16 palettes applied to it
         # This can only be done once the texture and color-palette NonTexBlob have been read in
         # But once we have the texture, it's pretty much 1:1 with the color-palette
-        matPerPal = [None] * len(self.colorPalChunk.colorPalImgs)
-        for (i, pal) in enumerate(self.colorPalChunk.colorPalImgs):
+        matPerPal = [None] * len(self.colorPalChunk.imgs)
+        for (i, pal) in enumerate(self.colorPalChunk.imgs):
             # get image ...
             # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
             mat = bpy.data.materials.new('GNS Mat Tex w Pal '+str(i))
