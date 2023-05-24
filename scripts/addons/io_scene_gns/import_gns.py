@@ -433,7 +433,8 @@ class Chunk(object):
         return res
 
 class VisAngleChunk(Chunk):
-    def __init__(self, data):
+    # res isn't used.  just here for ctor consistency with other chunks.
+    def __init__(self, data, res):
         super().__init__(data)
         # reading chunk 0x2c
         # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
@@ -493,10 +494,10 @@ class VisAngleChunk(Chunk):
 # so that means load the MeshChunk after visAngles (and all other chunks) are loaded
 class MeshChunk(Chunk):
     # read the mesh chunk
-    def __init__(self, data, visAngleChunk):
+    def __init__(self, data, res):
         super().__init__(data)
         
-        if visAngleChunk == None:
+        if res.visAngleChunk == None:
             print("reading a mesh without visAngles ... expect an error in some corner case I forgot to accomodate for")
         
         # reading from chunk 0x10
@@ -544,7 +545,7 @@ class MeshChunk(Chunk):
                 self.triTexNormals[3*i:3*(i+1)],
                 self.triTexFaces[i],
                 self.triTexTilePos[i],
-                visAngleChunk.triTexVisAngles[i] if visAngleChunk != None else None
+                res.visAngleChunk.triTexVisAngles[i] if res.visAngleChunk != None else None
             ))
 
         self.quadTexs = []
@@ -554,7 +555,7 @@ class MeshChunk(Chunk):
                 self.quadTexNormals[4*i:4*(i+1)],
                 self.quadTexFaces[i],
                 self.quadTexTilePos[i],
-                visAngleChunk.quadTexVisAngles[i] if visAngleChunk != None else None
+                res.visAngleChunk.quadTexVisAngles[i] if res.visAngleChunk != None else None
             ))
 
         self.triUntexs = []
@@ -562,7 +563,7 @@ class MeshChunk(Chunk):
             self.triUntexs.append(TriUntex(
                 self.triUntexVtxs[3*i:3*(i+1)],
                 self.triUntexUnknowns[i],
-                visAngleChunk.triUntexVisAngles[i] if visAngleChunk != None else None
+                res.visAngleChunk.triUntexVisAngles[i] if res.visAngleChunk != None else None
             ))
 
         self.quadUntexs = []
@@ -570,7 +571,7 @@ class MeshChunk(Chunk):
             self.quadUntexs.append(QuadUntex(
                 self.quadUntexVtxs[4*i:4*(i+1)],
                 self.quadUntexUnknowns[i],
-                visAngleChunk.quadUntexVisAngles[i] if visAngleChunk != None else None
+                res.visAngleChunk.quadUntexVisAngles[i] if res.visAngleChunk != None else None
             ))
 
     def toBin(self):
@@ -910,7 +911,6 @@ class TerrainChunk(Chunk):
         data += self.footer
         return data
 
-# technically this is a non-texture resource, i.e. anything else ... mesh, pal, light, anything ...
 class NonTexBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
@@ -918,20 +918,10 @@ class NonTexBlob(ResourceBlob):
         self.numSectors = countSectors(len(data))
 
         numChunks = 49
-        chunkNames = {
-            0x10 : 'mesh',
-            0x2c : 'vis angles',
-            0x11 : 'color pals',
-            0x19 : 'lights',
-            0x1a : 'terrain',
-            0x1f : 'grey pals',
-        }
-
-        self.chunks = [None] * numChunks
 
         self.header = (c_uint32 * numChunks).from_buffer_copy(data)
 
-        self.chunks = [None] * numChunks
+        chunks = [None] * numChunks
         for i, entry in enumerate(self.header):
             begin = self.header[i]
             if begin:
@@ -942,49 +932,34 @@ class NonTexBlob(ResourceBlob):
                         break
                 if end == None:
                     end = len(data)
-                self.chunks[i] = data[begin:end]
+                chunks[i] = data[begin:end]
 
-        # now while we're here, parse the respective chunks
-        data = None
-        ofs = 0
-
-        def setChunk(x, ofs0=0):
-            nonlocal ofs
-            ofs = ofs0
-            nonlocal data
-            data = self.chunks[x]
-            return data
-
-        def read(cl):
-            nonlocal ofs
-            res = cl.from_buffer_copy(data[ofs:ofs+sizeof(cl)])
-            ofs += sizeof(cl)
-            return res
-
+        # needs to be read before meshChunk
         self.visAngleChunk = None
-        if setChunk(0x2c, 0x380):
-            self.visAngleChunk = VisAngleChunk(data)
+        if chunks[0x2c]:
+            self.visAngleChunk = VisAngleChunk(chunks[0x2c], self)
 
+        # needs to be read after visAngleChunk
         self.meshChunk = None
-        if setChunk(0x10):
-            self.meshChunk = MeshChunk(data, self.visAngleChunk)
+        if chunks[0x10]:
+            self.meshChunk = MeshChunk(chunks[0x10], self)
 
         self.colorPalChunk = None
-        if setChunk(0x11):
-            self.colorPalChunk = ColorPalChunk(data, self)
+        if chunks[0x11]:
+            self.colorPalChunk = ColorPalChunk(chunks[0x11], self)
 
         self.grayPalChunk = None
-        if setChunk(0x1f):
-            self.grayPalChunk = GrayPalChunk(data, self)
+        if chunks[0x1f]:
+            self.grayPalChunk = GrayPalChunk(chunks[0x1f], self)
 
-        # this needs bbox if it exists, which is in meshChunk
+        # this needs bbox if it exists, which is calculated in meshChunk's ctor
         self.lightChunk = None
-        if setChunk(0x19):
-            self.lightChunk = LightChunk(data, self)
+        if chunks[0x19]:
+            self.lightChunk = LightChunk(chunks[0x19], self)
 
         self.terrainChunk = None
-        if setChunk(0x1a):
-            self.terrainChunk = TerrainChunk(data, self)
+        if chunks[0x1a]:
+            self.terrainChunk = TerrainChunk(chunks[0x1a], self)
 
     # old write code ... but TODO only write what you have or something i guess idk
     def writeHeader(self):
@@ -1322,6 +1297,9 @@ class Map(object):
         ]:
             setResField(field)
 
+    # build a collection per-map-state.
+    # return it and map stores it in .collections
+    # minimize the # of blender objects created in this -- try to push as many to the chunk creation as possible (to reduce duplication)
     def buildCollection(self,
         context,
         progress,
@@ -1344,6 +1322,7 @@ class Map(object):
 
         # Write out the indexed image with each 16 palettes applied to it
         # This can only be done once the texture and color-palette NonTexBlob have been read in
+        # But once we have the texture, it's pretty much 1:1 with the color-palette
         matPerPal = [None] * len(self.colorPalChunk.colorPalImgs)
         for (i, pal) in enumerate(self.colorPalChunk.colorPalImgs):
             # get image ...
