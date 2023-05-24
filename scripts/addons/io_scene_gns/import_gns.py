@@ -1153,8 +1153,9 @@ class Map(object):
         self.allTexRes = []
         self.allMeshRes = []
         for (i, r) in enumerate(allRecords):
-            print('GNS record', r.sector, self.filenameForSector[r.sector], r.size, r.resourceType, r.arrangement, r.isNight, r.weather)
+            print('GNS record', r.sector, self.filenameForSector[r.sector], r.size, r.resourceType, r.arrangement, r.isNight, r.weather, end='')
             if r.resourceType == RESOURCE_TEXTURE:
+                print('...tex')
                 self.allTexRes.append(TexBlob(
                     r,
                     self.filenameForSector[r.sector],
@@ -1163,11 +1164,13 @@ class Map(object):
             elif (r.resourceType == RESOURCE_MESH_INIT
                 or r.resourceType == RESOURCE_MESH_REPL
                 or r.resourceType == RESOURCE_MESH_ALT):
-                self.allMeshRes.append(NonTexBlob(
+                res = NonTexBlob(
                     r,
                     self.filenameForSector[r.sector],
                     self.mapdir
-                ))
+                )
+                print('...res', [i for i, e in enumerate(res.header) if e != 0])
+                self.allMeshRes.append(res)
             # else keep it anywhere?
 
         # enumerate unique (arrangement,night,weather) tuples
@@ -1344,7 +1347,8 @@ class Map(object):
 
 
         ### make the mesh
-        ### TODO can I make this in the Resource and not here?
+        # can I make this in the Resource and not here?
+        # no?  because mesh has faces, faces have materials, materials depend on tex, tex varies per-state ...
 
         material_mapping = {name: i for i, name in enumerate(uniqueMaterials)}
         materials = [None] * len(uniqueMaterials)
