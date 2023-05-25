@@ -17,6 +17,7 @@ from bpy_extras.wm_utils.progress_report import ProgressReport
 from bpy_extras import node_shader_utils
 
 class FFTStruct(LittleEndianStructure):
+    _pack_ = 1
     # why isn't there an easy way to do this?
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
@@ -27,7 +28,6 @@ class FFTStruct(LittleEndianStructure):
 # list of these in the GNS file that direct us to other resources
 # what to call it? resource? resource header?
 class GNSRecord(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         # GaneshaDx looks at only the low byte here,
         # and says only 0x22, 0x30, and 0x70 are acceptable
@@ -87,7 +87,6 @@ class GNSRecord(FFTStruct):
 assert sizeof(GNSRecord) == 20
 
 class MeshHeader(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('numTriTex', c_uint16),
         ('numQuadTex', c_uint16),
@@ -96,7 +95,6 @@ class MeshHeader(FFTStruct):
     ]
 
 class VertexPos(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('x', c_int16),
         ('y', c_int16),
@@ -104,7 +102,6 @@ class VertexPos(FFTStruct):
     ]
 
 class Normal(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('x', c_int16),
         ('y', c_int16),
@@ -119,7 +116,6 @@ class Normal(FFTStruct):
         )
 
 class TexCoord(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('x', c_uint8),
         ('y', c_uint8),
@@ -128,7 +124,6 @@ assert sizeof(TexCoord) == 2
 
 # textured-triangle face information
 class TriTexFace(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('uv0', TexCoord),
         ('pal', c_uint8, 4),
@@ -145,7 +140,6 @@ assert sizeof(TriTexFace) == 10
 # textured-quad face information
 # matches TriTexFace but with uv3
 class QuadTexFace(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('uv0', TexCoord),
         ('pal', c_uint8, 4),
@@ -162,7 +156,6 @@ assert sizeof(QuadTexFace) == 12
 
 # tile in-game position, stored per-textured-face
 class TilePos(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('x', c_uint8),
         ('y', c_uint8, 1),
@@ -174,7 +167,6 @@ def clamp(x,mn,mx):
     return max(mn, min(mx, x))
 
 class RGBA5551(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('r', c_uint16, 5),
         ('g', c_uint16, 5),
@@ -208,7 +200,6 @@ class RGBA5551(FFTStruct):
 #class LightColorChannel(FFTStruct):
 
 class LightColors(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('r', c_uint16 * 3),
         ('g', c_uint16 * 3),
@@ -225,7 +216,6 @@ class LightColors(FFTStruct):
         )
 
 class RGB888(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('r', c_uint8),
         ('g', c_uint8),
@@ -263,7 +253,6 @@ or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets 
 
 '''
 class TerrainTile(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('surfaceType', c_uint8, 6),
         ('unk0_6', c_uint8, 2),
@@ -293,11 +282,83 @@ assert sizeof(TerrainTile) == 8
 # can python ctypes do arrays-of-bitfields?
 # ... can C structs? nope?
 class TwoNibbles(FFTStruct):
-    _pack_ = 1
     _fields_ = [
         ('lo', c_uint8, 4),
         ('hi', c_uint8, 4),
     ]
+assert sizeof(TwoNibbles) == 1
+
+class TexAnim(FFTStruct):
+    _fields_ = [
+       
+        # 00:
+        # 130 << 2 = 520
+        # 520 - 2 * 256 = 8
+        # so
+        # 130 - 2 * 64 = 2 .. x4 to get texcoord = 8
+        ('xOver4', c_uint8, 6),
+        ('texPage', c_uint8, 2),
+        
+        # unknown, must be 3 maybe?  related to the rest of the bits of the texture page?
+        # 3 for TexAnim, 0 (and y == 0x01e0) for PalAnim ?
+        ('structSig', c_uint8),
+        
+        # 02:
+        ('y', c_uint16),
+        
+        # 04:
+        ('widthOver4', c_uint16),
+        
+        # 06:
+        ('height', c_uint16),
+
+        # 08:
+        ('first_xOver4', c_uint8, 6),
+        ('first_texPage', c_uint8, 2),
+        ('first_mustBe3', c_uint8),
+
+        # 0A:
+        ('first_y', c_uint16),
+
+        # 0C:
+        ('unkC', c_uint16),
+
+        # 0x01 = play forward, loop
+        # 0x02 = play forward then reverse, loop
+        # 0x05 = play forward upon UseFieldObject
+        # 0x15 = play reverse upon UseFieldObject
+        ('animType', c_uint8),
+
+        ('numFrames', c_uint8),
+
+        # 10:
+        ('unk10', c_uint8),
+
+        ('frameLenIn30Hz', c_uint8),
+
+        # 12:
+        ('unk12', c_uint16),
+    ]
+assert sizeof(TexAnim) == 0x14
+
+# if TexAnim structSig == 0 && y == 0x01e0 then use this one:
+
+class PalAnim(FFTStruct):
+    _fields_ = [
+        ('pal', c_uint8, 4),
+        ('unk0_4', c_uint8, 4),
+        ('structSig', c_uint8),  # must be 0
+        ('unk2', c_uint16), # must be 0x1e0
+        ('unk4', c_uint32),
+        ('startIndex', c_uint8), # start index in anim data set
+        ('unk9', c_uint8 * 5),
+        ('unkE', c_uint8),  # must be 3
+        ('numFrames', c_uint8),
+        ('unk10', c_uint8),
+        ('frameLenIn30Hz', c_uint8),
+        ('unk12', c_uint16),
+    ]
+assert sizeof(PalAnim) == 0x14
 
 ################################ fft/map/gns.py ################################
 
@@ -521,7 +582,17 @@ class MeshChunk(Chunk):
         self.triTexFaces = self.read(TriTexFace * self.hdr.numTriTex)
         self.quadTexFaces = self.read(QuadTexFace * self.hdr.numQuadTex)
 
-        # all 1's for map001 map002 ... hmm
+        # all 1's for all except ...
+        # map000 wasn't tested
+        # map092.9 has a single quad unknown with a value of 0
+        # map092.31 has a single quad unknown with value of 910344 / 0xde408
+        # map099.7 has a single quad unknown with a value of 9240564  / 0x8cfff4
+        # map117.7 has four quad unknowns with values:
+        #  900244 / 0xdbc94
+        #  3165114279 / 0xbca7cfa7
+        #  2055616955 / 0x7a8639bb 
+        #  934824 / 0xe43a8
+        # map125 wasn't tested
         self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
         print('self.triUntexUnknowns', list(self.triUntexUnknowns))
         self.quadUntexUnknowns = self.read(c_uint32 * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
@@ -915,12 +986,42 @@ class TerrainChunk(Chunk):
         data += self.footer
         return data
 
+class TexAnimChunk(Chunk):
+    def __init__(self, data, res):
+        super().__init__(data)
+        # begin reading 0x1b
+        self.anims = self.read(TexAnim * 32)
+        # done reading 0x1b
+
+    def toBin(self):
+        return bytes(self.anims)
+
+class PalAnimChunk(Chunk):
+    def __init__(self, data, res):
+        super().__init__(data)
+        # begin reading 0x1c
+        self.pals = []
+        for i in range(16):
+            self.pals[i] =  self.read(RGBA5551 * 16)
+        # done reading 0x1c
+
+    def toBin(self):
+        data = b''
+        for pal in self.pals:
+            data += bytes(pal)
+        return data
+
 class NonTexBlob(ResourceBlob):
     def __init__(self, record, filename, mapdir):
         super().__init__(record, filename, mapdir)
         data = self.readData()
         self.numSectors = countSectors(len(data))
 
+        # chunks used in maps 001 thru 119:
+        # in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
+        # missing:
+        # in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
+        # wait ... are the first 64 bytes used for something else?
         numChunks = 49
 
         self.header = (c_uint32 * numChunks).from_buffer_copy(data)
@@ -952,9 +1053,9 @@ class NonTexBlob(ResourceBlob):
         if chunks[0x11]:
             self.colorPalChunk = ColorPalChunk(chunks[0x11], self)
 
-        self.grayPalChunk = None
-        if chunks[0x1f]:
-            self.grayPalChunk = GrayPalChunk(chunks[0x1f], self)
+        # 0x12 is zero?
+        # 0x13 is only nonzero for map000.5
+        # 0x14..0x18 is zero?
 
         # this needs bbox if it exists, which is calculated in meshChunk's ctor
         self.lightChunk = None
@@ -965,22 +1066,47 @@ class NonTexBlob(ResourceBlob):
         if chunks[0x1a]:
             self.terrainChunk = TerrainChunk(chunks[0x1a], self)
 
+        self.texAnimChunk = None
+        if chunks[0x1b]:
+            self.texAnimChunk = TexAnimChunk(chunks[0x1b], self)
+
+        self.palAnimChunk = None
+        # is this rgba palettes or is it another texAnim set?
+        #if chunks[0x1c]:
+        #    self.palAnimChunk = PalAnimChunk(chunks[0x1c], self)
+
+        # 0x1d is zero?
+        # 0x1e is zero?
+
+        self.grayPalChunk = None
+        if chunks[0x1f]:
+            self.grayPalChunk = GrayPalChunk(chunks[0x1f], self)
+
+        # 0x20 is zero?
+        # 0x21 is zero?
+        # 0x22 is zero?
+        # 0x23 is mesh animation info
+        # 0x24..0x2b = animated meshes 0-7
     def write(self):
         if self.meshChunk != None:
             self.chunks[0x10] = self.meshChunk.toBin()
-        if self.visAngleChunk != None:
-            # meshChunk has the polygons (but when I read from blender, will it?)
-            # I could hold the reference to 'res' upon meshChunk ctor ... meh
-            self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
         if self.colorPalChunk != None:
             self.chunks[0x11] = self.colorPalChunk.toBin()
-        if self.grayPalChunk != None:
-            self.chunks[0x1f] = self.grayPalChunk.toBin()
         if self.lightChunk != None:
             self.chunks[0x19] = self.lightChunk.toBin()
         if self.terrainChunk != None:
             self.chunks[0x1a] = self.terrainChunk.toBin()
-
+        if self.texAnimChunk != None:
+            self.chunks[0x1b] = self.texAnimChunk.toBin()
+        if self.palAnimChunk != None:
+            self.chunks[0x1c] = self.palAnimChunk.toBin()
+        if self.grayPalChunk != None:
+            self.chunks[0x1f] = self.grayPalChunk.toBin()
+        if self.visAngleChunk != None:
+            # meshChunk has the polygons (but when I read from blender, will it?)
+            # I could hold the reference to 'res' upon meshChunk ctor ... meh
+            self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
+        
         # now write the header
         ofs = sizeof(self.header)
         for (i, chunk) in enumerate(self.chunks):
@@ -1069,9 +1195,9 @@ class TexBlob(ResourceBlob):
 
 class Map(object):
     def __init__(self,
-        context,
-        progress,
         filepath,
+        progress,
+        context,
         global_scale_x,
         global_scale_y,
         global_scale_z,
@@ -1087,6 +1213,11 @@ class Map(object):
 
         progress.enter_substeps(3, "Parsing GNS file...")
 
+        # bail out if we're just reading headers and not building scenes
+        # TODO separate the GNS reading from the Blender building?
+        if context == None:
+            return
+
         self.collections = []
         for (i, mapState) in enumerate(self.allMapStates):
             self.setMapState(mapState)
@@ -1097,13 +1228,13 @@ class Map(object):
                 + ' weather=' + str(weather)
             )
             collection = self.buildCollection(
-                    context,
-                    progress,
-                    collectionName,
-                    global_scale_x,
-                    global_scale_y,
-                    global_scale_z,
-                    global_matrix)
+                context,
+                progress,
+                collectionName,
+                global_scale_x,
+                global_scale_y,
+                global_scale_z,
+                global_matrix)
             #if i > 0:
                 # when I set 'hide_viewport' here, un-clicking it in the scene collection panel doesn't reveal it ...
                 #collection.hide_viewport = True
@@ -1191,10 +1322,10 @@ class Map(object):
         # enumerate unique (arrangement,night,weather) tuples
         # sort them too, so the first one is our (0,0,0) initial state
         self.allMapStates = sorted(set(r.record.getMapState() for r in self.allMeshRes))
-        print('all map states:')
-        print('arrangement / night / weather:')
-        for s in self.allMapStates:
-            print(s)
+        #print('all map states:')
+        #print('arrangement / night / weather:')
+        #for s in self.allMapStates:
+        #    print(s)
         if len(self.allMapStates) == 0:
             print("sorry there's no map states for this map...")
             raise "raise"
@@ -1223,7 +1354,7 @@ class Map(object):
         """
 
         mapConfigIndex, dayNight, weather = mapState
-        print("setting config", mapConfigIndex, dayNight, weather)
+        #print("setting config", mapConfigIndex, dayNight, weather)
         # now pick one ...
         # or somehow let the user decide which one to pick?
         #mapState = (mapConfigIndex, dayNight, weather)
@@ -1253,8 +1384,8 @@ class Map(object):
 
         # map from mesh and texture record to mesh filename
         getPathForRes = lambda r: r.filename
-        print('nonTextureFilenames', list(map(getPathForRes, self.nonTexRess)))
-        print('textureFilenames', list(map(getPathForRes, self.texRess)))
+        #print('nonTextureFilenames', list(map(getPathForRes, self.nonTexRess)))
+        #print('textureFilenames', list(map(getPathForRes, self.texRess)))
 
 
         # update fields ...
@@ -1557,9 +1688,22 @@ def load(context,
         if bpy.ops.object.select_all.poll():
             bpy.ops.object.select_all(action='DESELECT')
 
-        map = Map(context,
-            progress,
+        # hack for testing
+        """
+        if True:
+            mapdir = os.path.dirname(filepath)
+            for i in range(1,126):
+                fn = os.path.join(mapdir, f'MAP{i:03d}.GNS')
+                print('Loading', fn)
+                Map(fn, progress, None, None, None, None, None)
+            print("DONE")
+            raise "raise"
+        """
+
+        map = Map(
             filepath,
+            progress,
+            context,
             global_scale_x,
             global_scale_y,
             global_scale_z,
