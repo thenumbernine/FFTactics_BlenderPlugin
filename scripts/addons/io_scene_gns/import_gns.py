@@ -290,7 +290,7 @@ assert sizeof(TwoNibbles) == 1
 
 class TexAnim(FFTStruct):
     _fields_ = [
-       
+
         # 00:
         # 130 << 2 = 520
         # 520 - 2 * 256 = 8
@@ -298,17 +298,17 @@ class TexAnim(FFTStruct):
         # 130 - 2 * 64 = 2 .. x4 to get texcoord = 8
         ('xOver4', c_uint8, 6),
         ('texPage', c_uint8, 2),
-        
+
         # unknown, must be 3 maybe?  related to the rest of the bits of the texture page?
         # 3 for TexAnim, 0 (and y == 0x01e0) for PalAnim ?
         ('structSig', c_uint8),
-        
+
         # 02:
         ('y', c_uint16),
-        
+
         # 04:
         ('widthOver4', c_uint16),
-        
+
         # 06:
         ('height', c_uint16),
 
@@ -590,7 +590,7 @@ class MeshChunk(Chunk):
         # map117.7 has four quad unknowns with values:
         #  900244 / 0xdbc94
         #  3165114279 / 0xbca7cfa7
-        #  2055616955 / 0x7a8639bb 
+        #  2055616955 / 0x7a8639bb
         #  934824 / 0xe43a8
         # map125 wasn't tested
         self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
@@ -1053,9 +1053,9 @@ class NonTexBlob(ResourceBlob):
         if chunks[0x11]:
             self.colorPalChunk = ColorPalChunk(chunks[0x11], self)
 
-        # 0x12 is zero?
+        # 0x12 is unused
         # 0x13 is only nonzero for map000.5
-        # 0x14..0x18 is zero?
+        # 0x14..0x18 is unused
 
         # this needs bbox if it exists, which is calculated in meshChunk's ctor
         self.lightChunk = None
@@ -1075,18 +1075,19 @@ class NonTexBlob(ResourceBlob):
         #if chunks[0x1c]:
         #    self.palAnimChunk = PalAnimChunk(chunks[0x1c], self)
 
-        # 0x1d is zero?
-        # 0x1e is zero?
+        # 0x1d is unused
+        # 0x1e is unused
 
         self.grayPalChunk = None
         if chunks[0x1f]:
             self.grayPalChunk = GrayPalChunk(chunks[0x1f], self)
 
-        # 0x20 is zero?
-        # 0x21 is zero?
-        # 0x22 is zero?
+        # 0x20 is unused
+        # 0x21 is unused
+        # 0x22 is unused
         # 0x23 is mesh animation info
         # 0x24..0x2b = animated meshes 0-7
+
     def write(self):
         if self.meshChunk != None:
             self.chunks[0x10] = self.meshChunk.toBin()
@@ -1106,7 +1107,7 @@ class NonTexBlob(ResourceBlob):
             # meshChunk has the polygons (but when I read from blender, will it?)
             # I could hold the reference to 'res' upon meshChunk ctor ... meh
             self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
-        
+
         # now write the header
         ofs = sizeof(self.header)
         for (i, chunk) in enumerate(self.chunks):
