@@ -925,7 +925,7 @@ class TerrainChunk(Chunk):
         terrainMat = bpy.data.materials.new(res.filename + ' Terrain Mat')
         terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
         terrainMatWrap.ior = 1
-        terrainMatWrap.alpha = .2
+        terrainMatWrap.alpha = .5
         terrainMatWrap.use_nodes = True
         terrainMat.blend_method = 'BLEND'
 
