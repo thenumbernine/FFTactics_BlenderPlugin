@@ -789,6 +789,7 @@ class LightChunk(Chunk):
         # setup bg mesh mat
 
         bgMat = bpy.data.materials.new(res.filename + ' Bg Mat')
+        bgMat.use_backface_culling = True
         bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
         bgMatWrap.use_nodes = True
 
@@ -829,9 +830,10 @@ class LightChunk(Chunk):
         bgmesh = bpy.data.meshes.new(res.filename + ' Bg')
         bgmesh.materials.append(bgMat)
         bgmeshObj = bpy.data.objects.new(bgmesh.name, bgmesh)
-        # center 'y' is wayyy up ...
-        #bgmeshObj.location = self.center[0], self.center[1], self.center[2]
-        bgmeshObj.location = 5, 5, 5
+        center = (0,0,0)
+        if res.meshChunk != None:
+            center = res.meshChunk.center
+        bgmeshObj.location = center[0]/28., center[1]/24., center[2]/28.
         bgmeshObj.scale = 20., 20., 20.
 
         # make the mesh a sphere and smooth
