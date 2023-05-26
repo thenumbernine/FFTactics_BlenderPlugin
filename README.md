@@ -3,11 +3,11 @@
 [![Donate via Stripe](https://img.shields.io/badge/Donate-Stripe-green.svg)](https://buy.stripe.com/00gbJZ0OdcNs9zi288)<br>
 [![Donate via Bitcoin](https://img.shields.io/badge/Donate-Bitcoin-green.svg)](bitcoin:37fsp7qQKU8XoHZGRQvVzQVP8FrEJ73cSJ)<br>
 
+![example](example.png)
+
 This is modified heavily from the JustinMarshall98 Ganesha Python version, which itself was modified from the Gomtuu Ganesha Python version.
 It was convenient that Blender plugins are written in Python.
 It's also borrowing a lot of wisdom from the C# port, GaneshaDx.
-
-![example](ex3.png)
 
 ## Installing
 
@@ -18,11 +18,11 @@ https://docs.blender.org/manual/en/latest/advanced/blender_directory_layout.html
 
 Once it is copied, next go to Edit -> Preferences -> Add-Ons, then scroll down or filter by the word 'GNS', and you should see the plug-in:
 
-![step 1](ex1.png)
+![step 1](step1.png)
 
 Click the checkbox and you should now find a new option under File -> Import:
 
-![step 2](ex2.png)
+![step 2](step2.png)
 
 ## Progress
 
@@ -30,9 +30,13 @@ All combinations of map, day/night, and weather are imported as collections.
 
 Each collection contains a 3D mesh with textured and untextured polygons.
 
+![example_pal](example_pal.png)
+
 The 3D mesh contains a material per palette.  These materials are made of a image texture node of the 4-bpp indexed color image, 
 which connects into an image texture node of the 16-pixels-wide RGBA palette texture,
 which finally connects into the BSDF shader.
+
+![example_terrain](example_terrain.png)
 
 Each collection also contains a terrain mesh.
 
