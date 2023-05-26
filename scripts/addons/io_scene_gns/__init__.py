@@ -4,9 +4,9 @@ bl_info = {
     "version": (1, 0, 0),
     "blender": (3, 0, 0),
     "location": "File > Import-Export",
-    "description": "Import-Export GNS, Import GNS mesh, UVs, materials and textures",
+    "description": "Import-Export GNS",
     "warning": "",
-    "doc_url": "github.com/thenumbernine",
+    "doc_url": "https://github.com/thenumbernine/FFTactics_BlenderPlugin",
     "support": 'OFFICIAL',
     "category": "Import-Export",
 }
@@ -15,7 +15,8 @@ if "bpy" in locals():
     import importlib
     if "import_gns" in locals():
         importlib.reload(import_gns)
-
+    if "export_gns" in locals():
+        importlib.reload(export_gns)
 
 import bpy
 from bpy.props import (
@@ -36,7 +37,6 @@ from bpy_extras.io_utils import (
 
 @orientation_helper(axis_forward='Z', axis_up='-Y')
 class ImportGNS(bpy.types.Operator, ImportHelper):
-    """Load a Final Fantasy Tactics GNS File"""
     bl_idname = "import_scene.gns"
     bl_label = "Import GNS"
     bl_options = {'PRESET', 'UNDO'}
@@ -167,15 +167,175 @@ class GNS_PT_import_geometry(bpy.types.Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False  # No animation.
 
+@orientation_helper(axis_forward='-Z', axis_up='Y')
+class ExportGNS(bpy.types.Operator, ExportHelper):
+    bl_idname = 'export_scene.gns'
+    bl_label = 'Export GNS'
+    bl_options = {'PRESET'}
+
+    filename_ext = ".gns"
+    filter_glob: StringProperty(
+        default="*.gns",
+        options={'HIDDEN'},
+    )
+
+    use_mesh : BoolProperty(
+        name = "Mesh",
+        description = "Write Mesh",
+        default = True,
+    )
+    use_tiles : BoolProperty(
+        name = "Tiles",
+        description = "Write Tiles",
+        default = True,
+    )
+    use_colorpals : BoolProperty(
+        name = "Color Pals",
+        description = "Write Color Palettes",
+        default = True,
+    )
+    use_graypals : BoolProperty(
+        name = "Gray Pals",
+        description = "Write Gray Palettes",
+        default = True,
+    )
+    use_lights : BoolProperty(
+        name = "Lights & B.G.",
+        description = "Write Lights & Background",
+        default = True,
+    )
+    # TOOD texAnim, palAnim, meshAnim
+    use_visangles : BoolProperty(
+        name = "Vis. Angles",
+        description = "Write Visibility Angles",
+        default = True,
+    )
+
+    path_mode : path_reference_mode
+
+    check_extension = True
+
+    def execute(self, context):
+        from . import export_gns
+
+        from mathutils import Matrix
+        keywords = self.as_keywords(
+            ignore=(
+                "axis_forward",
+                "axis_up",
+                "global_scale",
+                "check_existing",
+                "filter_glob",
+            ),
+        )
+
+        global_matrix = axis_conversion(
+            to_forward=self.axis_forward,
+            to_up=self.axis_up,
+        ).to_4x4()
+
+        keywords["global_matrix"] = global_matrix
+        return export_gns.save(context, **keywords)
+
+    def draw(self, context):
+        pass
+
+
+class GNS_PT_export_include(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Include"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "EXPORT_SCENE_OT_gns"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        layout.prop(operator, 'use_mesh')
+        layout.prop(operator, 'use_tiles')
+        layout.prop(operator, 'use_colorpals')
+        layout.prop(operator, 'use_graypals')
+        layout.prop(operator, 'use_lights')
+        # TOOD texAnim, palAnim, meshAnim
+        layout.prop(operator, 'use_visangles')
+
+
+class GNS_PT_export_transform(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Transform"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "EXPORT_SCENE_OT_gns"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        layout.prop(operator, 'global_scale')
+        layout.prop(operator, 'path_mode')
+        layout.prop(operator, 'axis_forward')
+        layout.prop(operator, 'axis_up')
+
+
+class GNS_PT_export_geometry(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Geometry"
+    bl_parent_id = "FILE_PT_operator"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "EXPORT_SCENE_OT_gns"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+
 def menu_func_import(self, context):
     self.layout.operator(ImportGNS.bl_idname, text="Final Fantasy Tactics (.gns)")
 
+def menu_func_export(self, context):
+    self.layout.operator(ExportGNS.bl_idname, text="Final Fantasy Tactics (.gns)")
 
 classes = (
     ImportGNS,
     GNS_PT_import_include,
     GNS_PT_import_transform,
     GNS_PT_import_geometry,
+    ExportGNS,
+    GNS_PT_export_include,
+    GNS_PT_export_transform,
+    GNS_PT_export_geometry,
 )
 
 
@@ -184,10 +344,12 @@ def register():
         bpy.utils.register_class(cls)
 
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
 
     for cls in classes:
         bpy.utils.unregister_class(cls)
