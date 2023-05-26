@@ -882,44 +882,7 @@ class TerrainChunk(Chunk):
                 level.append(row)
             self.terrainTiles.append(level)
 
-        ### create the terrain
-
-        # vertexes of a [-.5, .5]^2 quad
-        quadVtxs = [
-            [-.5, -.5],
-            [-.5, .5],
-            [.5, .5],
-            [.5, -.5]
-        ]
-        # from GaneshaDx ... seems like there should be some kind of bitfield per modified vertex ...
-        liftPerVertPerSlopeType = [
-            [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
-            [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
-            [0x85, 0x52, 0x41, 0x96, 0x66, 0x99],
-            [0x52, 0x25, 0x11, 0x96, 0x66, 0x69],
-        ]
-
-        tmesh = bpy.data.meshes.new(res.filename + ' Terrain')
-        tmeshVtxs = []
-        tmeshEdges = []
-        tmeshFaces = []
-        tilesFlattened = []
-        for y in range(2):
-            for z in range(self.terrainSize[1]):
-                for x in range(self.terrainSize[0]):
-                    tile = self.terrainTiles[y][z][x]
-                    vi = len(tmeshVtxs)
-                    tmeshFaces.append([vi+0, vi+1, vi+2, vi+3])
-                    for (i, q) in enumerate(quadVtxs):
-                        tmeshVtxs.append((
-                            x + .5 + q[0],
-                            -.5 * (tile.halfHeight + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
-                            z + .5 + q[1]
-                        ))
-                    tilesFlattened.append(tile)
-        tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
-        tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
-        tmeshObj.hide_render = True
+        # create the terrain material
 
         terrainMat = bpy.data.materials.new(res.filename + ' Terrain Mat')
         terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
@@ -950,51 +913,96 @@ class TerrainChunk(Chunk):
         terrainGeomNode.location = (-400, 0)
         terrainMat.node_tree.links.new(brickTexNode.inputs['Vector'], terrainGeomNode.outputs['Position'])
 
-        tmesh.materials.append(terrainMat)
+        ### create the terrain
 
-        # custom per-face attributes for the terrain:
-        # doI have to do this once at all, or once per mesh?
-        # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
-        import bmesh
-        bm = bmesh.new()
-        if bpy.context.mode == 'EDIT_MESH':
-            bm.from_edit_mesh(tmeshObj.data)
-        else:
-            bm.from_mesh(tmeshObj.data)
-        tagNames = [
-            'surfaceType',
-            'depth',
-            'cantCursor',
-            'cantWalk',
-            'rotFlags',
-            'unk0_6',
-            'unk1',
-            'unk5',
-            'unk6_2'
-            # TODO visAngles
-            # via terrain mesh
-            #'halfHeight',
-            #'slopeHeight',
-            #'slopeType',
-        ]
-        tags = {}
-        for name in tagNames:
-            tags[name] = bm.faces.layers.int.new(name)
-            tags[name] = bm.faces.layers.int.get(name)
-        # example says to write to bm.edges[faceNo] to change a face property ... ?
-        # but they read from bm.faces[faceNo] ... wtf?
-        # ... BMElemSeq[index]: outdated internal index table, run ensure_lookup_table() first
-        bm.faces.ensure_lookup_table()
-        for (i, tile) in enumerate(tilesFlattened):
+        def makeTerrainObjForLayer(y):
+            nonlocal res
+            nonlocal terrainMat
+            # vertexes of a [-.5, .5]^2 quad
+            quadVtxs = [
+                [-.5, -.5],
+                [-.5, .5],
+                [.5, .5],
+                [.5, -.5]
+            ]
+            # from GaneshaDx ... seems like there should be some kind of bitfield per modified vertex ...
+            liftPerVertPerSlopeType = [
+                [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
+                [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
+                [0x85, 0x52, 0x41, 0x96, 0x66, 0x99],
+                [0x52, 0x25, 0x11, 0x96, 0x66, 0x69],
+            ]
+
+            vtxs = []
+            faces = []
+            tilesFlattened = []
+            for z in range(self.terrainSize[1]):
+                for x in range(self.terrainSize[0]):
+                    tile = self.terrainTiles[y][z][x]
+                    vi = len(vtxs)
+                    faces.append([vi+0, vi+1, vi+2, vi+3])
+                    for (i, q) in enumerate(quadVtxs):
+                        vtxs.append((
+                            x + .5 + q[0],
+                            -.5 * (tile.halfHeight + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
+                            z + .5 + q[1]
+                        ))
+                    tilesFlattened.append(tile)
+            mesh = bpy.data.meshes.new(res.filename + ' Terrain'+str(y))
+            mesh.materials.append(terrainMat)
+            mesh.from_pydata(vtxs, [], faces)
+            terrainMeshObj = bpy.data.objects.new(mesh.name, mesh)
+            terrainMeshObj.hide_render = True
+
+            tagNames = [
+                'surfaceType',
+                'depth',
+                'cantCursor',
+                'cantWalk',
+                'rotFlags',
+                'unk0_6',
+                'unk1',
+                'unk5',
+                'unk6_2'
+                # TODO visAngles
+                # via terrain mesh
+                #'halfHeight',
+                #'slopeHeight',
+                #'slopeType',
+            ]
+
+            # custom per-face attributes for the terrain:
+            # doI have to do this once at all, or once per mesh?
+            # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
+            import bmesh
+            bm = bmesh.new()
+            if bpy.context.mode == 'EDIT_MESH':
+                bm.from_edit_mesh(terrainMeshObj.data)
+            else:
+                bm.from_mesh(terrainMeshObj.data)
+            tags = {}
             for name in tagNames:
-                bm.faces[i][tags[name]] = getattr(tile, name)
-        if bpy.context.mode == 'EDIT_MESH':
-            bm.updated_edit_mesh(tmeshObj.data)
-        else:
-            bm.to_mesh(tmeshObj.data)
-        bm.free()
+                tags[name] = bm.faces.layers.int.new(name)
+                tags[name] = bm.faces.layers.int.get(name)
+            # example says to write to bm.edges[faceNo] to change a face property ... ?
+            # but they read from bm.faces[faceNo] ... wtf?
+            # ... BMElemSeq[index]: outdated internal index table, run ensure_lookup_table() first
+            bm.faces.ensure_lookup_table()
+            for (i, tile) in enumerate(tilesFlattened):
+                for name in tagNames:
+                    bm.faces[i][tags[name]] = getattr(tile, name)
+            if bpy.context.mode == 'EDIT_MESH':
+                bm.updated_edit_mesh(terrainMeshObj.data)
+            else:
+                bm.to_mesh(terrainMeshObj.data)
+            bm.free()
 
-        self.tmeshObj = tmeshObj
+            return terrainMeshObj
+
+        self.terrainMeshObjs = []
+        for y in range(2):
+            self.terrainMeshObjs.append(makeTerrainObjForLayer(y))
+
 
     def toBin(self):
         # TODO read this back from the blender mesh
@@ -1647,11 +1655,12 @@ class Map(object):
         newObjects.append(meshObj)
 
         if hasattr(self, 'terrainChunk'):
-            self.terrainChunk.tmeshObj.matrix_world = global_matrix
-            # once again, is this applied before or after matrix_world? before or after view_later.update() ?
-            # looks like it is in blender coordinates, i.e. z-up
-            self.terrainChunk.tmeshObj.location = 0, 0, .01
-            newObjects.append(self.terrainChunk.tmeshObj)
+            for terrainMeshObj in self.terrainChunk.terrainMeshObjs:
+                terrainMeshObj.matrix_world = global_matrix
+                # once again, is this applied before or after matrix_world? before or after view_later.update() ?
+                # looks like it is in blender coordinates, i.e. z-up
+                terrainMeshObj.location = 0, 0, .01
+                newObjects.append(terrainMeshObj)
 
         if hasattr(self, 'lightChunk'):
             for obj in self.lightChunk.dirLightObjs:
