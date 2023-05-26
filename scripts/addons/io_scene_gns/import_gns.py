@@ -882,42 +882,10 @@ class TerrainChunk(Chunk):
                 level.append(row)
             self.terrainTiles.append(level)
 
-        # create the terrain material
-
-        terrainMat = bpy.data.materials.new(res.filename + ' Terrain Mat')
-        terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
-        terrainMatWrap.ior = 1
-        terrainMatWrap.alpha = .5
-        terrainMatWrap.use_nodes = True
-        terrainMat.blend_method = 'BLEND'
-
-        bsdf = terrainMat.node_tree.nodes['Principled BSDF']
-        brickTexNode = terrainMat.node_tree.nodes.new('ShaderNodeTexBrick')
-        brickTexNode.location = (-200, 0)
-        brickTexNode.offset = 0
-        brickTexNode.offset_frequency = 1
-        brickTexNode.squash = 1
-        brickTexNode.squash_frequency = 1
-        brickTexNode.inputs['Color1'].default_value = (1,1,1,0)
-        brickTexNode.inputs['Color2'].default_value = (0,0,0,0)
-        brickTexNode.inputs['Mortar'].default_value = (0,0,1,1)
-        brickTexNode.inputs['Scale'].default_value = 1
-        brickTexNode.inputs['Mortar Size'].default_value = .1
-        brickTexNode.inputs['Mortar Smooth'].default_value = 1
-        brickTexNode.inputs['Bias'].default_value = 1
-        brickTexNode.inputs['Brick Width'].default_value = 1
-        brickTexNode.inputs['Row Height'].default_value = 1
-        terrainMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs['Color'])
-
-        terrainGeomNode = terrainMat.node_tree.nodes.new('ShaderNodeNewGeometry')
-        terrainGeomNode.location = (-400, 0)
-        terrainMat.node_tree.links.new(brickTexNode.inputs['Vector'], terrainGeomNode.outputs['Position'])
-
         ### create the terrain
 
         def makeTerrainObjForLayer(y):
             nonlocal res
-            nonlocal terrainMat
             # vertexes of a [-.5, .5]^2 quad
             quadVtxs = [
                 [-.5, -.5],
@@ -949,7 +917,7 @@ class TerrainChunk(Chunk):
                         ))
                     tilesFlattened.append(tile)
             mesh = bpy.data.meshes.new(res.filename + ' Terrain'+str(y))
-            mesh.materials.append(terrainMat)
+            mesh.materials.append(res.gns.terrainMat)
             mesh.from_pydata(vtxs, [], faces)
             terrainMeshObj = bpy.data.objects.new(mesh.name, mesh)
             terrainMeshObj.hide_render = True
@@ -1045,10 +1013,13 @@ class PalAnimChunk(Chunk):
         return data
 
 class NonTexBlob(ResourceBlob):
-    def __init__(self, record, filename, mapdir):
+    def __init__(self, record, filename, mapdir, gns):
         super().__init__(record, filename, mapdir)
         data = self.readData()
         self.numSectors = countSectors(len(data))
+
+        # store here just for chunks to use.  I could pass it through to chunks individually , but , meh...
+        self.gns = gns
 
         # chunks used in maps 001 thru 119:
         # in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
@@ -1243,6 +1214,9 @@ class Map(object):
         self.mapdir = os.path.dirname(filepath)
         self.filename = os.path.basename(filepath)
         self.nameroot = os.path.splitext(self.filename)[0]
+        
+        self.loadCommon()
+
         self.readGNS(filepath)
 
         progress.enter_substeps(3, "Parsing GNS file...")
@@ -1280,6 +1254,42 @@ class Map(object):
 
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
+
+    # create blender nodes used by everything
+    def loadCommon(self):
+        # create the terrain material
+        # TODO this can be shared with everything
+
+        terrainMat = bpy.data.materials.new('Terrain Mat')
+        terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
+        terrainMatWrap.ior = 1
+        terrainMatWrap.alpha = .5
+        terrainMatWrap.use_nodes = True
+        terrainMat.blend_method = 'BLEND'
+
+        bsdf = terrainMat.node_tree.nodes['Principled BSDF']
+        brickTexNode = terrainMat.node_tree.nodes.new('ShaderNodeTexBrick')
+        brickTexNode.location = (-200, 0)
+        brickTexNode.offset = 0
+        brickTexNode.offset_frequency = 1
+        brickTexNode.squash = 1
+        brickTexNode.squash_frequency = 1
+        brickTexNode.inputs['Color1'].default_value = (1,1,1,0)
+        brickTexNode.inputs['Color2'].default_value = (0,0,0,0)
+        brickTexNode.inputs['Mortar'].default_value = (0,0,1,1)
+        brickTexNode.inputs['Scale'].default_value = 1
+        brickTexNode.inputs['Mortar Size'].default_value = .1
+        brickTexNode.inputs['Mortar Smooth'].default_value = 1
+        brickTexNode.inputs['Bias'].default_value = 1
+        brickTexNode.inputs['Brick Width'].default_value = 1
+        brickTexNode.inputs['Row Height'].default_value = 1
+        terrainMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs['Color'])
+
+        terrainGeomNode = terrainMat.node_tree.nodes.new('ShaderNodeNewGeometry')
+        terrainGeomNode.location = (-400, 0)
+        terrainMat.node_tree.links.new(brickTexNode.inputs['Vector'], terrainGeomNode.outputs['Position'])
+
+        self.terrainMat = terrainMat
 
     # GaneshaDx here:
     # iters thru whole file, reading GNSRecord's as 20-bytes (or whatever remains)
@@ -1347,7 +1357,8 @@ class Map(object):
                 res = NonTexBlob(
                     r,
                     self.filenameForSector[r.sector],
-                    self.mapdir
+                    self.mapdir,
+                    self
                 )
                 print('...res w/chunks '+str([i for i, e in enumerate(res.header) if e != 0]))
                 self.allMeshRes.append(res)
