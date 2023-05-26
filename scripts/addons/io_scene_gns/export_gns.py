@@ -17,5 +17,10 @@ def save(
     #  always save all?
     #  checkboxes?  int selection?
     # cycle through all collections and look at the names?
+    # how about a collection-per-resource-file?
+    #  which stores the ext no ... like, the collection name == the resource filename
+    #  and then the collections hold objects pertaining to the resources?
+    # then we'd have two sets of collectiosn ... one for the map files, and one for the resources
+    #  and don't duplicate nodes between them?  somehow?  would require some rearranging for the mesh...
 
     return {'FINISHED'}
