@@ -919,7 +919,6 @@ class TerrainChunk(Chunk):
                     tilesFlattened.append(tile)
         tmesh.from_pydata(tmeshVtxs, tmeshEdges, tmeshFaces)
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
-        #tmeshObj.matrix_world = global_matrix
         tmeshObj.hide_render = True
 
         terrainMat = bpy.data.materials.new(res.filename + ' Terrain Mat')
@@ -936,16 +935,16 @@ class TerrainChunk(Chunk):
         brickTexNode.offset_frequency = 1
         brickTexNode.squash = 1
         brickTexNode.squash_frequency = 1
-        brickTexNode.inputs[1].default_value = (1,1,1,0)    # Color1
-        brickTexNode.inputs[2].default_value = (0,0,0,0)    # Color2
-        brickTexNode.inputs[3].default_value = (0,0,1,1)    # Mortar
-        brickTexNode.inputs[4].default_value = 1            # Scale
-        brickTexNode.inputs[5].default_value = .1            # Mortar Size
-        brickTexNode.inputs[6].default_value = 1            # Mortar Smoothness
-        brickTexNode.inputs[7].default_value = 1            # Bias
-        brickTexNode.inputs[8].default_value = 1            # Brick Width
-        brickTexNode.inputs[9].default_value = 1            # Row Height
-        terrainMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs[0])
+        brickTexNode.inputs['Color1'].default_value = (1,1,1,0)
+        brickTexNode.inputs['Color2'].default_value = (0,0,0,0)
+        brickTexNode.inputs['Mortar'].default_value = (0,0,1,1)
+        brickTexNode.inputs['Scale'].default_value = 1
+        brickTexNode.inputs['Mortar Size'].default_value = .1
+        brickTexNode.inputs['Mortar Smooth'].default_value = 1
+        brickTexNode.inputs['Bias'].default_value = 1
+        brickTexNode.inputs['Brick Width'].default_value = 1
+        brickTexNode.inputs['Row Height'].default_value = 1
+        terrainMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs['Color'])
 
         terrainGeomNode = terrainMat.node_tree.nodes.new('ShaderNodeNewGeometry')
         terrainGeomNode.location = (-400, 0)
