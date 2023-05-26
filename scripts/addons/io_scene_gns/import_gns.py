@@ -836,29 +836,21 @@ class LightChunk(Chunk):
         bgmeshObj.location = center[0]/28., center[1]/24., center[2]/28.
         bgmeshObj.scale = 20., 20., 20.
 
-        # make the mesh a sphere and smooth
-        # do this before objects.link ... ?
+        # make the mesh a sphere
         import bmesh
         bm = bmesh.new()
         bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=5)
-        # normal_flip not working?
         for f in bm.faces:
+            # flip the normals so that, with backface culling, we will always see the sphere around the map and behind the map
             f.normal_flip()
+            # set smooth shading
+            f.smooth = True
         bm.normal_update()
 
         bm.to_mesh(bgmeshObj.data)
         bm.free()
 
         self.bgmeshObj = bgmeshObj
-        # create-object for the bmesh
-        #view_layer = context.view_layer
-        #collection = view_layer.active_layer_collection.collection
-        #collection.objects.link(bgmeshObj)
-        #bgmeshObj.select_set(True)
-
-        # this doesn't work unless the uvsphere is already attached ...
-        #bpy.ops.object.modifier_add(type='SUBSURF')
-        #bpy.ops.object.shade_smooth()
 
     def toBin(self):
         return (
