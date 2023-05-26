@@ -921,14 +921,14 @@ class TerrainChunk(Chunk):
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
         #tmeshObj.matrix_world = global_matrix
         tmeshObj.hide_render = True
-        
+
         terrainMat = bpy.data.materials.new(res.filename + ' Terrain Mat')
         terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
         terrainMatWrap.ior = 1
         terrainMatWrap.alpha = .2
         terrainMatWrap.use_nodes = True
         terrainMat.blend_method = 'BLEND'
-        
+
         bsdf = terrainMat.node_tree.nodes['Principled BSDF']
         brickTexNode = terrainMat.node_tree.nodes.new('ShaderNodeTexBrick')
         brickTexNode.location = (-200, 0)
@@ -1546,9 +1546,12 @@ class Map(object):
                 return [poly.vtxs[2], poly.vtxs[3], poly.vtxs[1], poly.vtxs[0]]  # cw => ccw and tristrip -> quad
             return [poly.vtxs[2], poly.vtxs[1], poly.vtxs[0]]                    # cw front-face => ccw front-face
 
+        # TODO try with this
+        # https://blender.stackexchange.com/q/53709
         meshVtxPos = []
         meshVtxNormals = []
         meshVtxTCs = []
+        tot_loops = 0
         faces = []  # tuples of the faces
         vi = 0
         vti = 0
@@ -1568,33 +1571,24 @@ class Map(object):
                     ))
                     meshVtxNormals.append(v.normal.toTuple())
                 else:
-                    # if I exclude the texcoords and normals on the faces that don't use them then I get this error in blender:
-                    #  Error: Array length mismatch (got 6615, expected more)
-                    # should I put the non-texcoord/normal'd faces in a separate mesh?
-                    # TODO give them their own material
                     meshVtxTCs.append((0,0))
                     meshVtxNormals.append((0,0,0))
 
-            # turn all polys into fans
-            for i in range(1,n-1):
-                face_vert_loc_indices = [vi+0, vi+i, vi+i+1]
-                #if isTexd:
-                face_vert_nor_indices = [vti+0, vti+i, vti+i+1]
-                face_vert_tex_indices = [vti+0, vti+i, vti+i+1]
-                faces.append((
-                    face_vert_loc_indices,
-                    face_vert_nor_indices,
-                    face_vert_tex_indices,
-                    matPerPal[s.texFace.pal].name if isTexd else matWOTex.name
-                ))
+            face_vert_loc_indices = [vi+j for j in range(n)]
+            face_vert_nor_indices = [vti+j for j in range(n)]
+            face_vert_tex_indices = [vti+j for j in range(n)]
+            faces.append((
+                face_vert_loc_indices,
+                face_vert_nor_indices,
+                face_vert_tex_indices,
+                matPerPal[s.texFace.pal].name if isTexd else matWOTex.name
+            ))
+            tot_loops += n
+
             vi+=n
             #if isTexd:
             vti+=n
 
-        loops_vert_idx = tuple(vidx for (face_vert_loc_indices, _, _, _) in faces for vidx in face_vert_loc_indices)
-
-        fgon_edges = set()
-        tot_loops = 3 * len(faces)
 
         mesh.polygons.add(len(faces))
         mesh.loops.add(tot_loops)
@@ -1611,6 +1605,7 @@ class Map(object):
             lidx += nbr_vidx
         faces_loop_total = tuple(len(face_vert_loc_indices) for (face_vert_loc_indices, _, _, _) in faces)
 
+        loops_vert_idx = tuple(vidx for (face_vert_loc_indices, _, _, _) in faces for vidx in face_vert_loc_indices)
         mesh.loops.foreach_set("vertex_index", loops_vert_idx)
         mesh.polygons.foreach_set("loop_start", faces_loop_start)
         mesh.polygons.foreach_set("loop_total", faces_loop_total)
