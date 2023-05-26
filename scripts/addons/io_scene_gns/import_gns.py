@@ -42,6 +42,9 @@ class GNSRecord(FFTStruct):
         # for map002 it's always 0
         ('unknown3', c_uint8, 4),
 
+        # how bright<->dark is the map
+        # 0 = brightest
+        # 4 = darkest
         # 0..4 by the enums in python Ganesha
         # from 'none' to 'strong'
         ('weather', c_uint8, 3),
@@ -583,7 +586,6 @@ class MeshChunk(Chunk):
         self.quadTexFaces = self.read(QuadTexFace * self.hdr.numQuadTex)
 
         # all 1's for all except ...
-        # map000 wasn't tested
         # map092.9 has a single quad unknown with a value of 0
         # map092.31 has a single quad unknown with value of 910344 / 0xde408
         # map099.7 has a single quad unknown with a value of 9240564  / 0x8cfff4
@@ -592,11 +594,10 @@ class MeshChunk(Chunk):
         #  3165114279 / 0xbca7cfa7
         #  2055616955 / 0x7a8639bb
         #  934824 / 0xe43a8
-        # map125 wasn't tested
         self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
-        print('self.triUntexUnknowns', list(self.triUntexUnknowns))
         self.quadUntexUnknowns = self.read(c_uint32 * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
-        print('self.quadUntexUnknowns', list(self.quadUntexUnknowns))
+        #print('self.triUntexUnknowns', list(self.triUntexUnknowns))
+        #print('self.quadUntexUnknowns', list(self.quadUntexUnknowns))
 
         self.triTexTilePos = self.read(TilePos * self.hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
         self.quadTexTilePos = self.read(TilePos * self.hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
@@ -926,6 +927,37 @@ class TerrainChunk(Chunk):
         tmeshObj = bpy.data.objects.new(tmesh.name, tmesh)
         #tmeshObj.matrix_world = global_matrix
         tmeshObj.hide_render = True
+        
+        terrainMat = bpy.data.materials.new(res.filename + ' Terrain Mat')
+        terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
+        terrainMatWrap.ior = 1
+        terrainMatWrap.alpha = .2
+        terrainMatWrap.use_nodes = True
+        terrainMat.blend_method = 'BLEND'
+        
+        bsdf = terrainMat.node_tree.nodes['Principled BSDF']
+        brickTexNode = terrainMat.node_tree.nodes.new('ShaderNodeTexBrick')
+        brickTexNode.location = (-200, 0)
+        brickTexNode.offset = 0
+        brickTexNode.offset_frequency = 1
+        brickTexNode.squash = 1
+        brickTexNode.squash_frequency = 1
+        brickTexNode.inputs[1].default_value = (1,1,1,0)    # Color1
+        brickTexNode.inputs[2].default_value = (0,0,0,0)    # Color2
+        brickTexNode.inputs[3].default_value = (0,0,1,1)    # Mortar
+        brickTexNode.inputs[4].default_value = 1            # Scale
+        brickTexNode.inputs[5].default_value = .1            # Mortar Size
+        brickTexNode.inputs[6].default_value = 1            # Mortar Smoothness
+        brickTexNode.inputs[7].default_value = 1            # Bias
+        brickTexNode.inputs[8].default_value = 1            # Brick Width
+        brickTexNode.inputs[9].default_value = 1            # Row Height
+        terrainMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs[0])
+
+        terrainGeomNode = terrainMat.node_tree.nodes.new('ShaderNodeNewGeometry')
+        terrainGeomNode.location = (-400, 0)
+        terrainMat.node_tree.links.new(brickTexNode.inputs['Vector'], terrainGeomNode.outputs['Position'])
+
+        tmesh.materials.append(terrainMat)
 
         # custom per-face attributes for the terrain:
         # doI have to do this once at all, or once per mesh?
@@ -1021,7 +1053,7 @@ class NonTexBlob(ResourceBlob):
         # in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
         # missing:
         # in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
-        # wait ... are the first 64 bytes used for something else?
+        # ... seems like the first 64 bytes are used for something else
         numChunks = 49
 
         self.header = (c_uint32 * numChunks).from_buffer_copy(data)
@@ -1628,6 +1660,9 @@ class Map(object):
 
         if hasattr(self, 'terrainChunk'):
             self.terrainChunk.tmeshObj.matrix_world = global_matrix
+            # once again, is this applied before or after matrix_world? before or after view_later.update() ?
+            # looks like it is in blender coordinates, i.e. z-up
+            self.terrainChunk.tmeshObj.location = 0, 0, .01
             newObjects.append(self.terrainChunk.tmeshObj)
 
         if hasattr(self, 'lightChunk'):
