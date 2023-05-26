@@ -760,16 +760,6 @@ class LightChunk(Chunk):
 
 
         # ambient light?  in blender?
-        # https://blender.stackexchange.com/questions/23884/creating-cycles-background-light-world-lighting-from-python
-        # seems the most common way is ...
-        # ... overriding the world background
-        """
-        world = bpy.data.worlds['World']
-        background = world.node_tree.nodes['Background']
-        background.inputs[0].default_value[:3] = self.ambientLightColor.toTuple()
-        background.inputs[1].default_value = 5.
-        """
-        # but you can just do that once ... what if I want to load multiple map cfgs at a time?
         lightName = res.filename+' Ambient'
         lightData = bpy.data.lights.new(name=lightName, type='SUN')
         lightData.energy = 20       # ?
@@ -1343,7 +1333,7 @@ class Map(object):
         self.allTexRes = []
         self.allMeshRes = []
         for (i, r) in enumerate(allRecords):
-            print('GNS record', self.filenameForSector[r.sector], str(r), end='')
+            print('record', self.filenameForSector[r.sector], str(r), end='')
             if r.resourceType == RESOURCE_TEXTURE:
                 print('...tex')
                 self.allTexRes.append(TexBlob(
@@ -1497,7 +1487,7 @@ class Map(object):
             for (i, pal) in enumerate(self.colorPalChunk.imgs):
                 # get image ...
                 # https://blender.stackexchange.com/questions/643/is-it-possible-to-create-image-data-and-save-to-a-file-from-a-script
-                mat = bpy.data.materials.new('GNS Mat Tex w Pal '+str(i))
+                mat = bpy.data.materials.new(self.nameroot + ' Mat Tex w Pal '+str(i))
                 uniqueMaterials[mat.name] = mat
                 matPerPal[i] = mat
                 matWrap = node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=False)
@@ -1744,7 +1734,14 @@ def load(context,
             raise "raise"
         """
 
-        map = Map(
+        # set world color
+        world = bpy.data.worlds['World']
+        background = world.node_tree.nodes['Background']
+        background.inputs[0].default_value = (1, 1, 1, 1)
+        background.inputs[1].default_value = 1
+
+        # load map
+        m = Map(
             filepath,
             progress,
             context,
@@ -1801,9 +1798,9 @@ def load(context,
                 if first_object.visible_get() != visibility:
                     bpy.ops.object.hide_collection(context_override, collection_index=index, toggle=True)
 
-        for i in range(1,len(map.collections)):
-            set_collection_viewport_visibility(context, map.collections[i], visibility=False)
-        set_collection_viewport_visibility(context, map.collections[0], visibility=True)
+        for i in range(1,len(m.collections)):
+            set_collection_viewport_visibility(context, m.collections[i], visibility=False)
+        set_collection_viewport_visibility(context, m.collections[0], visibility=True)
 
         # ... and those 50 lines of code are what is needed to just hide an object in the viewport
 
