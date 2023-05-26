@@ -1,4 +1,5 @@
 # https://ffhacktics.com/wiki/Maps/Mesh
+# https://ffhacktics.com/wiki/Maps/GNS
 
 import array
 import os
@@ -16,78 +17,9 @@ from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 from bpy_extras import node_shader_utils
 
-class FFTStruct(LittleEndianStructure):
-    _pack_ = 1
-    # why isn't there an easy way to do this?
-    def toTuple(self):
-        return tuple(getattr(self, x[0]) for x in self._fields_)
-
-    def __str__(self):
-        return '{'+', '.join(x[0]+'='+str(getattr(self, x[0])) for x in self._fields_)+'}'
-
-# list of these in the GNS file that direct us to other resources
-# what to call it? resource? resource header?
-class GNSRecord(FFTStruct):
-    _fields_ = [
-        # GaneshaDx looks at only the low byte here,
-        # and says only 0x22, 0x30, and 0x70 are acceptable
-        ('sig', c_uint16),
-
-        # 0 = primary
-        # 1 = secondary
-        # from the consts in here I'd say there's up to ==5 ?
-        # 'arrangement' eh?  'config' ?
-        ('arrangement', c_uint8),
-
-        # for map002 it's always 0
-        ('unknown3', c_uint8, 4),
-
-        # how bright<->dark is the map
-        # 0 = brightest
-        # 4 = darkest
-        # 0..4 by the enums in python Ganesha
-        # from 'none' to 'strong'
-        ('weather', c_uint8, 3),
-
-        # 0 = day
-        # 1 = night
-        ('isNight', c_uint8, 1),
-
-        # always 1?
-        ('resourceFlag', c_uint8),
-
-        # 0x17 = texture
-        # 0x2e = initial mesh
-        # 0x2f = replacement mesh
-        # 0x30 = alternative mesh
-        # 0x31 = EOF (and the struct might be truncated)
-        # 0x80 0x85 0x86 0x87 0x88 = also listed in GaneshaDx
-        ('resourceType', c_uint8),
-
-        # trails GNSRecord if it isn't a RESOURCE_EOF
-        # do I really need to break these into two separate reads?
-        # I think GaneshaDx puts a threshold of 20 bytes ... meaning we shoudl always be able to access both structs...
-
-        # for map002 it's always 0x3333
-        ('unknown6', c_uint16),
-
-        # disk sector
-        ('sector', c_uint32),
-
-        # file size, rounded up to 2k block
-        # sector plus roundup(size/2k) = next sector
-        # but is there a relation between the file ext no? both are sequential in same order.  neither are 1:1 with indexes
-        ('size', c_uint32),
-
-        # for map002 always 0x88776655
-        ('unknownA', c_uint32),
-    ]
-
-    # return the tuple of arrangement, isNight, weather which are used to uniquely identify ... bleh
-    def getMapState(self):
-        return (self.arrangement, self.isNight, self.weather)
-
-assert sizeof(GNSRecord) == 20
+from . import gns
+GNS = gns.GNS
+FFTStruct = gns.FFTStruct
 
 class MeshHeader(FFTStruct):
     _fields_ = [
@@ -363,30 +295,6 @@ class PalAnim(FFTStruct):
     ]
 assert sizeof(PalAnim) == 0x14
 
-################################ fft/map/gns.py ################################
-
-# GaneshaDx: texture resources:
-RESOURCE_TEXTURE = 0x17
-
-# GaneshaDx: mesh resources:
-# this is the init mesh, looks like it is always used unless overridden ...
-RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
-
-# ... this is the override
-# screenshot from ... ? shows RESOURCE_REPL with prim mesh, pal, lights, terrain, tex.anim., and pal.anim.
-RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
-
-# this is just pal and lights
-RESOURCE_MESH_ALT = 0x30 # Used with many index combos. Usually a small file.
-
-# GaneshaDx: other stuff I guess
-RESOURCE_EOF = 0x31 # GaneshaDx calls this one "Padded" ... as in file-padding?  as in EOF record?
-RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
-RESOURCE_UNKNOWN_TWIN_1 = 0x85
-RESOURCE_UNKNOWN_TWIN_2 = 0x86
-RESOURCE_UNKNOWN_TWIN_3 = 0x87
-RESOURCE_UNKNOWN_TWIN_4 = 0x88
-
 ################################ fft/map/__init__.py ################################
 
 class VertexTex(object):
@@ -512,8 +420,8 @@ class VisAngleChunk(Chunk):
         # reading chunk 0x2c
         # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
         self.header = self.readBytes(0x380)
+        # TODO how to associate endian-ness with a primitive type?
         self.triTexVisAngles = self.read(c_uint16 * 512)
-        # ... and this is a 1536 byte block always
         self.quadTexVisAngles = self.read(c_uint16 * 768)
         self.triUntexVisAngles = self.read(c_uint16 * 64)
         self.quadUntexVisAngles = self.read(c_uint16 * 256)
@@ -594,6 +502,7 @@ class MeshChunk(Chunk):
         #  3165114279 / 0xbca7cfa7
         #  2055616955 / 0x7a8639bb
         #  934824 / 0xe43a8
+        # TODO how to associate endian-ness with a primitive type?
         self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
         self.quadUntexUnknowns = self.read(c_uint32 * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
         #print('self.triUntexUnknowns', list(self.triUntexUnknowns))
@@ -1018,6 +927,7 @@ class NonTexBlob(ResourceBlob):
         # ... seems like the first 64 bytes are used for something else
         numChunks = 49
 
+        # TODO how to associate endian-ness with a primitive type?
         self.header = (c_uint32 * numChunks).from_buffer_copy(data)
 
         chunks = [None] * numChunks
@@ -1204,10 +1114,10 @@ class Map(object):
         self.mapdir = os.path.dirname(filepath)
         self.filename = os.path.basename(filepath)
         self.nameroot = os.path.splitext(self.filename)[0]
-        
+
         self.loadCommon()
 
-        self.readGNS(filepath)
+        self.readGNS()
 
         progress.enter_substeps(3, "Parsing GNS file...")
 
@@ -1217,7 +1127,7 @@ class Map(object):
             return
 
         self.collections = []
-        for (i, mapState) in enumerate(self.allMapStates):
+        for (i, mapState) in enumerate(self.gns.allMapStates):
             self.setMapState(mapState)
             mapConfigIndex, dayNight, weather = mapState
             collectionName = (self.nameroot
@@ -1244,6 +1154,42 @@ class Map(object):
 
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
+
+
+    def readGNS(self):
+        self.gns = GNS(self.filepath)
+
+        if len(self.gns.allMapStates) == 0:
+            raise Exception("sorry there's no map states for this map...")
+
+        # now, here, per resource file, load *everything* you can
+        # I'm gonna put everything inside blender first and then sort it out per-scene later
+
+        self.allTexRes = []
+        self.allMeshRes = []
+        for (i, r) in enumerate(self.gns.allRecords):
+            print('record', self.gns.filenameForSector[r.sector], str(r), end='')
+            if r.resourceType == r.RESOURCE_TEXTURE:
+                print('...tex')
+                self.allTexRes.append(TexBlob(
+                    r,
+                    self.gns.filenameForSector[r.sector],
+                    self.mapdir
+                ))
+            elif (r.resourceType == r.RESOURCE_MESH_INIT
+                or r.resourceType == r.RESOURCE_MESH_REPL
+                or r.resourceType == r.RESOURCE_MESH_ALT):
+                res = NonTexBlob(
+                    r,
+                    self.gns.filenameForSector[r.sector],
+                    self.mapdir,
+                    self
+                )
+                print('...res w/chunks '+str([i for i, e in enumerate(res.header) if e != 0]))
+                self.allMeshRes.append(res)
+            # else keep it anywhere?
+
+
 
     # create blender nodes used by everything
     def loadCommon(self):
@@ -1281,91 +1227,6 @@ class Map(object):
 
         self.terrainMat = terrainMat
 
-    # GaneshaDx here:
-    # iters thru whole file, reading GNSRecord's as 20-bytes (or whatever remains)
-    #  filters out only the tex & mesh res.
-    # sort resources by sector
-    def readGNS(self, filepath):
-        #mapNum = int(filepath[-7:-4])
-        file = open(filepath, 'rb')
-        allRecords = []
-        while True:
-            #def readStruct(file, struct):
-            #    return struct.from_buffer_copy(file.read(sizeof(struct)))
-            #r = readStruct(file, GNSRecord)
-            # but it could be incomplete right?
-            # file.read(numBytes) will fail gracefully
-            # but I think ctype.from_buffer_copy won't ...
-            sdata = file.read(sizeof(GNSRecord))
-            sdata = sdata + b'\0' * (sizeof(GNSRecord) - len(sdata)) # pad?
-            r = GNSRecord.from_buffer_copy(sdata)
-            if r.resourceFlag == 1 and r.resourceType == RESOURCE_EOF:
-                break
-            allRecords.append(r)
-        file.close()
-
-        allRecords.sort(key=lambda a: a.sector)
-
-        # now using sorted sectors and file suffixes, map all records to their files
-        allSectors = sorted(set(r.sector for r in allRecords))
-
-        # get all files in the same dir with matching prefix ...
-        allResFilenames = []
-        for fn in os.listdir(self.mapdir):
-            if fn != self.filename and os.path.splitext(fn)[0] == self.nameroot:
-                allResFilenames.append(fn)
-
-        # sort by filename suffix
-        allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
-        assert len(allSectors) == len(allResFilenames)
-
-        # map from sector back to resource filename
-        self.filenameForSector = {}
-        for (sector, resFn) in zip(allSectors, allResFilenames):
-            self.filenameForSector[sector] = resFn
-
-        #print(allSectors)
-        #print(allRes)
-
-        # now, here, per resource file, load *everything* you can
-        # I'm gonna put everything inside blender first and then sort it out per-scene later
-
-        self.allTexRes = []
-        self.allMeshRes = []
-        for (i, r) in enumerate(allRecords):
-            print('record', self.filenameForSector[r.sector], str(r), end='')
-            if r.resourceType == RESOURCE_TEXTURE:
-                print('...tex')
-                self.allTexRes.append(TexBlob(
-                    r,
-                    self.filenameForSector[r.sector],
-                    self.mapdir
-                ))
-            elif (r.resourceType == RESOURCE_MESH_INIT
-                or r.resourceType == RESOURCE_MESH_REPL
-                or r.resourceType == RESOURCE_MESH_ALT):
-                res = NonTexBlob(
-                    r,
-                    self.filenameForSector[r.sector],
-                    self.mapdir,
-                    self
-                )
-                print('...res w/chunks '+str([i for i, e in enumerate(res.header) if e != 0]))
-                self.allMeshRes.append(res)
-            # else keep it anywhere?
-
-        # enumerate unique (arrangement,night,weather) tuples
-        # sort them too, so the first one is our (0,0,0) initial state
-        self.allMapStates = sorted(set(r.record.getMapState() for r in self.allMeshRes))
-        #print('all map states:')
-        #print('arrangement / night / weather:')
-        #for s in self.allMapStates:
-        #    print(s)
-        if len(self.allMapStates) == 0:
-            print("sorry there's no map states for this map...")
-            raise "raise"
-
-
     def setMapState(self, mapState):
         """
         what if there's more than 1 texture?
@@ -1393,8 +1254,8 @@ class Map(object):
         # now pick one ...
         # or somehow let the user decide which one to pick?
         #mapState = (mapConfigIndex, dayNight, weather)
-        #mapState = self.allMapStates[0]
-        #mapState = self.allMapStates[1]
+        #mapState = self.gns.allMapStates[0]
+        #mapState = self.gns.allMapStates[1]
         #mapState = (1,1,4)
         # are all configurations defined for all maps?
         # TODO
@@ -1405,7 +1266,7 @@ class Map(object):
         self.nonTexRess = list(filter(
             lambda r: r.record.getMapState() == mapState
                 # ... right?  I also want the init mesh in here, right?
-                or r.record.resourceType == RESOURCE_MESH_INIT,
+                or r.record.resourceType == r.record.RESOURCE_MESH_INIT,
             self.allMeshRes))
         self.texRess = []
         for i, r in enumerate(self.allTexRes):

@@ -2,6 +2,7 @@ def save(
     context,
     filepath,
     *,
+    use_texture=True,
     use_mesh=True,
     use_tiles=True,
     use_colorpals=True,
@@ -22,5 +23,12 @@ def save(
     #  and then the collections hold objects pertaining to the resources?
     # then we'd have two sets of collectiosn ... one for the map files, and one for the resources
     #  and don't duplicate nodes between them?  somehow?  would require some rearranging for the mesh...
+
+    # first off I gotta load the gns records of what resources are available (right?)
+    # ... or should I keep track of that information as well, from the collections?
+    if not os.path.exists(filepath):
+        raise Exception("currently I can't write new files, just modify old ones.")
+
+    if use_texture:
 
     return {'FINISHED'}

@@ -47,6 +47,9 @@ class ImportGNS(bpy.types.Operator, ImportHelper):
         options = {'HIDDEN'},
     )
 
+	# hmm I'm phasing this out ... not sure in place of what ...
+	# should maps be all (28,24,28) scaled?  should they be (28,28,28) scaled?
+	# should they be not scaled?
     global_scale_x : FloatProperty(
         name = "Scale Down X",
         min = .01, max = 1000.,
@@ -179,6 +182,11 @@ class ExportGNS(bpy.types.Operator, ExportHelper):
         options={'HIDDEN'},
     )
 
+    use_texture : BoolProperty(
+        name = "Texture",
+        description = "Write Texture",
+        default = True,
+    )
     use_mesh : BoolProperty(
         name = "Mesh",
         description = "Write Mesh",
@@ -262,6 +270,7 @@ class GNS_PT_export_include(bpy.types.Panel):
         sfile = context.space_data
         operator = sfile.active_operator
 
+        layout.prop(operator, 'use_texture')
         layout.prop(operator, 'use_mesh')
         layout.prop(operator, 'use_tiles')
         layout.prop(operator, 'use_colorpals')
