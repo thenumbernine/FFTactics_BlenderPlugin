@@ -701,19 +701,17 @@ def load(context,
             bpy.ops.object.select_all(action='DESELECT')
 
         # hack for testing
-        """
-        if True:
+        if False:
             mapdir = os.path.dirname(filepath)
             for i in range(126):
                 fn = os.path.join(mapdir, f'MAP{i:03d}.GNS')
                 print('Loading', fn)
                 try:
-                    gns.GNS(fn, progress, None, None, None, None, None)
+                    gns.GNS(fn)
                 except Exception as e:
-                    print("failed with error", e
+                    print("failed with error", e)
             print("DONE")
-            raise "raise"
-        """
+            raise Exception("done")
 
         # set world color
         world = bpy.data.worlds['World']
