@@ -28,7 +28,13 @@ def save(
     # ... or should I keep track of that information as well, from the collections?
     if not os.path.exists(filepath):
         raise Exception("currently I can't write new files, just modify old ones.")
+    
+    from . import gns
+    GNS = gns.GNS
+
+    gns = GNS(filepath)
 
     if use_texture:
+        # export textures ... which textures tho? to where?
 
     return {'FINISHED'}
