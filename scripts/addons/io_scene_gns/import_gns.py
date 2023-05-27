@@ -15,12 +15,99 @@ from bpy_extras.io_utils import unpack_list
 from bpy_extras.image_utils import load_image
 from bpy_extras.wm_utils.progress_report import ProgressReport
 from bpy_extras import node_shader_utils
-
 from . import gns
 
-################################ fft/map/__init__.py ################################
+# overload the gns classes to do blender stuff
 
+class BlenderTexBlob(gns.TexBlob):
+    def __init__(self, record, filename, mapdir):
+        super().__init__(record, filename, mapdir)
 
+        # here's the indexed texture, though it's not attached to anything
+        self.indexImg = bpy.data.images.new(self.filename + ' Tex Indexed', width=self.width, height=self.height)
+        self.indexImg.alpha_mode = 'NONE'
+        self.indexImg.colorspace_settings.name = 'Raw'
+        self.indexImg.pixels = [
+            ch
+            for colorIndex in self.pixels
+            for ch in (
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                1.
+            )
+        ]
+    
+    def writeTexture(self, filepath):
+        pixRGBA = self.indexImg.pixels
+        data = b''
+        for y in range(self.height):
+            for x in range(self.rowsize):
+                data += bytes(TwoNibbles(
+                    int(16. * pixRGBA[0 + 4 * (0 + 2 * (x + self.rowsize * y))]),
+                    int(16. * pixRGBA[0 + 4 * (1 + 2 * (x + self.rowsize * y))])
+                ))
+        file = open(filepath, 'wb')
+        file.write(data)
+        file.close()
+
+class BlenderPalChunk(gns.PalChunk):
+    @staticmethod
+    def palToImg(name, colors):
+        img = bpy.data.images.new(name, width=len(colors), height=1)
+        img.pixels = [
+            ch
+            for color in colors
+            for ch in color.toTuple()
+        ]
+        return img
+   
+    def __init__(self, data, res):
+        super().__init__(data, res)
+        self.imgs = [
+            self.palToImg(
+                res.filename + ' ' + self.ident + ' Pal Tex ' + str(i),
+                self.colors
+            ) for i in range(16)]
+
+    @staticmethod
+    def palImgToBytes(palImg):
+        data = b''
+        pixRGBA = palImg.pixels
+        for i in range(len(pixRGBA)/4):
+            data += bytes(RGBA5551.fromRGBA(
+                pixRGBA[0 + 4 * i],
+                pixRGBA[1 + 4 * i],
+                pixRGBA[2 + 4 * i],
+                pixRGBA[3 + 4 * i]
+            ))
+        return data
+
+    def toBin(self):
+        data = b''
+        for img in self.imgs:
+            data += self.palImgToBytes(img)
+        return data
+
+class BlenderColorPalChunk(BlenderPalChunk):
+    ident = 'Color'
+
+class BlenderGrayPalChunk(BlenderPalChunk):
+    ident = 'Gray'
+
+class BlenderNonTexBlob(gns.NonTexBlob):
+    chunkIOClasses = {
+        gns.CHUNK_MESH : gns.MeshChunk,
+        gns.CHUNK_COLORPALS : BlenderColorPalChunk,
+        gns.CHUNK_LIGHTS : gns.LightChunk,
+        gns.CHUNK_TERRAIN : gns.TerrainChunk,
+        gns.CHUNK_TEX_ANIM : gns.TexAnimChunk,
+        #gns.CHUNK_PAL_ANIM : gns.PalAnimChunk,
+        gns.CHUNK_GRAYPALS : BlenderGrayPalChunk,
+        gns.CHUNK_VISANGLES : gns.VisAngleChunk,
+    }
+
+# this class has become a GNS wrapper + collection of all mapstates
 class Map(object):
     def __init__(self,
         filepath,
@@ -94,7 +181,7 @@ class Map(object):
             print('record', self.gns.filenameForSector[r.sector], str(r), end='')
             if r.resourceType == r.RESOURCE_TEXTURE:
                 print('...tex')
-                self.allTexRes.append(gns.TexBlob(
+                self.allTexRes.append(BlenderTexBlob(
                     r,
                     self.gns.filenameForSector[r.sector],
                     self.mapdir
@@ -102,7 +189,7 @@ class Map(object):
             elif (r.resourceType == r.RESOURCE_MESH_INIT
                 or r.resourceType == r.RESOURCE_MESH_REPL
                 or r.resourceType == r.RESOURCE_MESH_ALT):
-                res = gns.NonTexBlob(
+                res = BlenderNonTexBlob(
                     r,
                     self.gns.filenameForSector[r.sector],
                     self.mapdir,
@@ -358,8 +445,8 @@ class Map(object):
 
                 if isTexd:
                     meshVtxTCs.append((
-                        (v.texcoord.x + .5) / gns.TexBlob.width,
-                        (256 * s.texFace.page + v.texcoord.y + .5) / gns.TexBlob.height
+                        (v.texcoord.x + .5) / BlenderTexBlob.width,
+                        (256 * s.texFace.page + v.texcoord.y + .5) / BlenderTexBlob.height
                     ))
                     meshVtxNormals.append(v.normal.toTuple())
                 else:

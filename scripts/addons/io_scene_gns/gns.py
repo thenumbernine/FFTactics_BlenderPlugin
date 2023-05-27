@@ -205,9 +205,8 @@ class TexBlob(ResourceBlob):
 
         # expand the 8-bits into separate 4-bits into an image double array
         # this isn't grey, it's indexed into one of the 16 palettes.
-        # TODO store this just [] instead of [][]
         pix44 = (TwoNibbles * len(data)).from_buffer_copy(data)
-        # pix8 = [colorIndex] in [0,15] integers
+        # self.pixels = [colorIndex] in [0,15] integers
         # which is faster?
         """
         pix8 = [
@@ -218,41 +217,24 @@ class TexBlob(ResourceBlob):
         ]
         """
         # vs
-        pix8 = [0] * (self.width * self.height)
+        self.pixels = [0] * (self.width * self.height)
         dsti = 0
         for srci in range(self.height * self.rowsize):
             lohi = pix44[srci]
-            pix8[dsti] = lohi.lo
+            self.pixels[dsti] = lohi.lo
             dsti += 1
-            pix8[dsti] = lohi.hi
+            self.pixels[dsti] = lohi.hi
             dsti += 1
 
-        # here's the indexed texture, though it's not attached to anything
-        self.indexImg = bpy.data.images.new(self.filename + ' Tex Indexed', width=self.width, height=self.height)
-        self.indexImg.alpha_mode = 'NONE'
-        self.indexImg.colorspace_settings.name = 'Raw'
-        self.indexImg.pixels = [
-            ch
-            for colorIndex in pix8
-            for ch in (
-                (colorIndex+.5)/16.,
-                (colorIndex+.5)/16.,
-                (colorIndex+.5)/16.,
-                1.
-            )
-        ]
-
-    def writeTexture(self):
-        pixRGBA = self.indexImg.pixels
+    def writeTexture(self, filepath):
         data = b''
         for y in range(self.height):
             for x in range(self.rowsize):
                 data += bytes(TwoNibbles(
-                    int(16. * pixRGBA[0 + 4 * (0 + 2 * (x + self.rowsize * y))]),
-                    int(16. * pixRGBA[0 + 4 * (1 + 2 * (x + self.rowsize * y))])
+                    int(self.pixels[0 + 2 * (x + self.rowsize * y)]),
+                    int(self.pixels[1 + 2 * (x + self.rowsize * y)])
                 ))
-        assert len(self.textureFilenames) == 1
-        file = open(self.textureFilenames[0], 'wb')
+        file = open(filepath, 'wb')
         file.write(data)
         file.close()
 
@@ -923,56 +905,24 @@ class MeshChunk(Chunk):
             data += bytes(polygon.tilePos)
         return data
 
-import bpy
-from bpy_extras import node_shader_utils
-
 class PalChunk(Chunk):
     def __init__(self, data, res):
         super().__init__(data)
         # reading chunk
-        self.imgs = [
-            self.palToImg(
-                res.filename + ' ' + self.ident + ' Pal Tex ' + str(i),
-                self.read(RGBA5551 * 16)
-            ) for i in range(16)]
+        self.colors = self.read(RGBA5551 * 16)
         # done reading chunk
 
-    @staticmethod
-    def palToImg(name, colors):
-        img = bpy.data.images.new(name, width=len(colors), height=1)
-        img.pixels = [
-            ch
-            for color in colors
-            for ch in color.toTuple()
-        ]
-        return img
-
- 
     def toBin(self):
-        data = b''
-        for img in self.imgs:
-            data += self.palImgToBytes(img)
-        return data
-
-    @staticmethod
-    def palImgToBytes(palImg):
-        data = b''
-        pixRGBA = palImg.pixels
-        for i in range(len(pixRGBA)/4):
-            data += bytes(RGBA5551.fromRGBA(
-                pixRGBA[0 + 4 * i],
-                pixRGBA[1 + 4 * i],
-                pixRGBA[2 + 4 * i],
-                pixRGBA[3 + 4 * i]
-            ))
-        return data
-
+        return bytes(self.colors)
 
 class ColorPalChunk(PalChunk): # 0x11
     ident = 'Color'
 
 class GrayPalChunk(PalChunk):  # 0x1f
     ident = 'Gray'
+
+import bpy
+from bpy_extras import node_shader_utils
 
 class LightChunk(Chunk):
     def __init__(self, data, res):
