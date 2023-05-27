@@ -549,6 +549,10 @@ class VisAngleChunk(Chunk):
     # res isn't used.  just here for ctor consistency with other chunks.
     def __init__(self, data, res):
         super().__init__(data)
+        
+        # hold res here so toBin() can use it to access the meshChunk's blender objs later
+        self.res = res
+
         # reading chunk 0x2c
         # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
         self.header = self.readBytes(0x380)
@@ -572,7 +576,8 @@ class VisAngleChunk(Chunk):
     # (and the respective blender objects that go with it)
     # and then both can query it?
     # right now MeshChunk is taking responsibility for both.
-    def toBin(self, meshChunk):
+    def toBin(self):
+        meshChunk = res.meshChunk
         triTexVisAngles = b''
         for polygon in meshChunk.triTexs:
             triTexVisAngles += bytes(polygon.visAngles)
@@ -1070,6 +1075,38 @@ def countSectors(size):
     return (size >> 11) + (1 if size & ((1<<11)-1) else 0)
 
 class NonTexBlob(ResourceBlob):
+    
+    # chunks used in maps 001 thru 119:
+    # in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
+    # missing:
+    # in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
+    # ... seems like the first 64 bytes are used for something else
+    numChunks = 49
+
+    # specify which IO to use to read/associate with each chunk here
+    # these can be overridden if the chunk has to do more work (ex: load Blender resources) 
+    chunkIOClasses = {
+        0x10 = MeshChunk,
+        0x11 = ColorPalChunk,
+        # 0x12 is unused
+        # 0x13 is only nonzero for map000.5
+        # 0x14..0x18 is unused
+        0x19 = LightChunk,
+        0x1a = TerrainChunk,
+        0x1b = TexAnimChunk,
+        # is this rgba palettes or is it another texAnim set?
+        #0x1c = PalAnimChunk,
+        # 0x1d is unused
+        # 0x1e is unused
+        0x1f = GrayPalChunk,
+        # 0x20 is unused
+        # 0x21 is unused
+        # 0x22 is unused
+        # 0x23 is mesh animation info
+        # 0x24..0x2b = animated meshes 0-7
+        0x2c = VisAngleChunk,
+    }
+    
     def __init__(self, record, filename, mapdir, gns):
         super().__init__(record, filename, mapdir)
         data = self.readData()
@@ -1078,22 +1115,15 @@ class NonTexBlob(ResourceBlob):
         # store here just for chunks to use.  I could pass it through to chunks individually , but , meh...
         self.gns = gns
 
-        # chunks used in maps 001 thru 119:
-        # in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
-        # missing:
-        # in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
-        # ... seems like the first 64 bytes are used for something else
-        numChunks = 49
-
         # TODO how does ctypes associate endian-ness with a primitive type?
-        self.header = (c_uint32 * numChunks).from_buffer_copy(data)
+        self.header = (c_uint32 * self.numChunks).from_buffer_copy(data)
 
-        chunks = [None] * numChunks
+        chunks = [None] * self.numChunks
         for i, entry in enumerate(self.header):
             begin = self.header[i]
             if begin:
                 end = None
-                for j in range(i + 1, numChunks):
+                for j in range(i + 1, self.numChunks):
                     if self.header[j]:
                         end = self.header[j]
                         break
@@ -1101,85 +1131,49 @@ class NonTexBlob(ResourceBlob):
                     end = len(data)
                 chunks[i] = data[begin:end]
 
-        # needs to be read before meshChunk
-        self.visAngleChunk = None
-        if chunks[0x2c]:
-            self.visAngleChunk = VisAngleChunk(chunks[0x2c], self)
+        # each chunk's IO
+        self.chunkIOs = {}
 
-        # needs to be read after visAngleChunk
-        self.meshChunk = None
-        if chunks[0x10]:
-            self.meshChunk = MeshChunk(chunks[0x10], self)
+        # if the chunk was in the header, read it with its respective class
+        # store it in chunkIOs, but also in its respective field
+        # (the outside world can reference the named fields)
+        def readChunk(i):
+            nonlocal chunk
+            data = chunks[i]
+            if data:
+                if not i in self.chunkIOClasses:
+                    print("WARNING: resource has chunk "+str(i)+" but we don't have a class for reading it")
+                else:
+                    cl = self.chunkIOClasses[i]
+                    return self.chunkIOs[i] = cl(data, self)
 
-        self.colorPalChunk = None
-        if chunks[0x11]:
-            self.colorPalChunk = ColorPalChunk(chunks[0x11], self)
-
-        # 0x12 is unused
-        # 0x13 is only nonzero for map000.5
-        # 0x14..0x18 is unused
-
-        # this needs bbox if it exists, which is calculated in meshChunk's ctor
-        self.lightChunk = None
-        if chunks[0x19]:
-            self.lightChunk = LightChunk(chunks[0x19], self)
-
-        self.terrainChunk = None
-        if chunks[0x1a]:
-            self.terrainChunk = TerrainChunk(chunks[0x1a], self)
-
-        self.texAnimChunk = None
-        if chunks[0x1b]:
-            self.texAnimChunk = TexAnimChunk(chunks[0x1b], self)
-
-        self.palAnimChunk = None
-        # is this rgba palettes or is it another texAnim set?
-        #if chunks[0x1c]:
-        #    self.palAnimChunk = PalAnimChunk(chunks[0x1c], self)
-
-        # 0x1d is unused
-        # 0x1e is unused
-
-        self.grayPalChunk = None
-        if chunks[0x1f]:
-            self.grayPalChunk = GrayPalChunk(chunks[0x1f], self)
-
-        # 0x20 is unused
-        # 0x21 is unused
-        # 0x22 is unused
-        # 0x23 is mesh animation info
-        # 0x24..0x2b = animated meshes 0-7
+        self.visAngleChunk = readChunk(0x2c)    # needs to be read before meshChunk
+        self.meshChunk = readChunk(0x10)        # needs to be read after visAngleChunk
+        self.colorPalChunk = readChunk(0x11)
+        self.lightChunk = readChunk(0x19)       # this needs bbox if it exists, which is calculated in meshChunk's ctor
+        self.terrainChunk = readChunk(0x1a)
+        self.texAnimChunk = readChunk(0x1b)
+        self.palAnimChunk = readChunk(0x1c)
+        self.grayPalChunk = readChunk(0x1f)
 
     def write(self):
-        if self.meshChunk != None:
-            self.chunks[0x10] = self.meshChunk.toBin()
-        if self.colorPalChunk != None:
-            self.chunks[0x11] = self.colorPalChunk.toBin()
-        if self.lightChunk != None:
-            self.chunks[0x19] = self.lightChunk.toBin()
-        if self.terrainChunk != None:
-            self.chunks[0x1a] = self.terrainChunk.toBin()
-        if self.texAnimChunk != None:
-            self.chunks[0x1b] = self.texAnimChunk.toBin()
-        if self.palAnimChunk != None:
-            self.chunks[0x1c] = self.palAnimChunk.toBin()
-        if self.grayPalChunk != None:
-            self.chunks[0x1f] = self.grayPalChunk.toBin()
-        if self.visAngleChunk != None:
-            # meshChunk has the polygons (but when I read from blender, will it?)
-            # I could hold the reference to 'res' upon meshChunk ctor ... meh
-            self.chunks[0x2c] = self.visAngleChunk.toBin(self.meshChunk)
-
+        chunks = [None] * self.numChunks
+        for i in range(numChunks):
+            if i in self.chunkIOs:
+                io = self.chunkIOs[i]
+                if io != None:
+                    chunks[i] = io.toBin()
+        
         # now write the header
         ofs = sizeof(self.header)
-        for (i, chunk) in enumerate(self.chunks):
+        for (i, chunk) in enumerate(chunks):
             if chunk:
                 self.header[i] = ofs
                 ofs += len(chunk)
             else:
                 self.header[i] = 0
         data = bytes(self.header)
-        for chunk in self.chunks:
+        for chunk in chunks:
             data += chunk
         newNumSectors = countSectors(len(data))
         if newNumSectors > self.numSectors:
@@ -1207,7 +1201,7 @@ class TexBlob(ResourceBlob):
         # TODO store this just [] instead of [][]
         pix44 = (TwoNibbles * len(data)).from_buffer_copy(data)
         # pix8 = [colorIndex] in [0,15] integers
-        # which is slower?
+        # which is faster?
         """
         pix8 = [
             colorIndex
