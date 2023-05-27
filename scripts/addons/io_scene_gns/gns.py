@@ -1,12 +1,10 @@
 import math
 import os.path
-import bpy
-from bpy_extras import node_shader_utils
 from ctypes import *
 
-################################ ctypes ################################
+################################ the GNS file ################################
 
-class FFTStruct(LittleEndianStructure):
+class FFTData:
     _pack_ = 1
     # why isn't there an easy way to do this?
     def toTuple(self):
@@ -14,6 +12,9 @@ class FFTStruct(LittleEndianStructure):
 
     def __str__(self):
         return '{'+', '.join(x[0]+'='+str(getattr(self, x[0])) for x in self._fields_)+'}'
+
+class FFTUnion(LittleEndianUnion, FFTData):
+class FFTStruct(LittleEndianStructure, FFTData):
 
 # list of these in the GNS file that direct us to other resources
 # what to call it? resource? resource header?
@@ -77,34 +78,162 @@ class GNSRecord(FFTStruct):
     def getMapState(self):
         return (self.arrangement, self.isNight, self.weather)
 
-# GaneshaDx: texture resources:
-GNSRecord.RESOURCE_TEXTURE = 0x17
+    # GaneshaDx: texture resources:
+    RESOURCE_TEXTURE = 0x17
 
-# GaneshaDx: mesh resources:
-# this is the init mesh, looks like it is always used unless overridden ...
-GNSRecord.RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
+    # GaneshaDx: mesh resources:
+    # this is the init mesh, looks like it is always used unless overridden ...
+    RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
 
-# ... this is the override
-# screenshot from ... ? shows RESOURCE_REPL with prim mesh, pal, lights, terrain, tex.anim., and pal.anim.
-GNSRecord.RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
+    # ... this is the override
+    # screenshot from ... ? shows RESOURCE_REPL with prim mesh, pal, lights, terrain, tex.anim., and pal.anim.
+    RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
 
-# this is just pal and lights
-GNSRecord.RESOURCE_MESH_ALT = 0x30 # Used with many index combos. Usually a small file.
+    # this is just pal and lights
+    RESOURCE_MESH_ALT = 0x30 # Used with many index combos. Usually a small file.
 
-# GaneshaDx: other stuff I guess
-GNSRecord.RESOURCE_EOF = 0x31       # GaneshaDx calls this one "Padded" ... as in file-padding?  as in EOF record?
+    # GaneshaDx: other stuff I guess
+    RESOURCE_EOF = 0x31       # GaneshaDx calls this one "Padded" ... as in file-padding?  as in EOF record?
 
-GNSRecord.RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
-
-GNSRecord.RESOURCE_UNKNOWN_TWIN_1 = 0x85
-
-GNSRecord.RESOURCE_UNKNOWN_TWIN_2 = 0x86
-
-GNSRecord.RESOURCE_UNKNOWN_TWIN_3 = 0x87
-
-GNSRecord.RESOURCE_UNKNOWN_TWIN_4 = 0x88
+    RESOURCE_UNKNOWN_EXTRA_DATA_A = 0x80 # from GaneshaDx
+    RESOURCE_UNKNOWN_TWIN_1 = 0x85
+    RESOURCE_UNKNOWN_TWIN_2 = 0x86
+    RESOURCE_UNKNOWN_TWIN_3 = 0x87
+    RESOURCE_UNKNOWN_TWIN_4 = 0x88
 
 assert sizeof(GNSRecord) == 20
+
+
+# read the GNS records ... which are 20 bytes, or 8 bytes for the EOF
+# read the files in the same dir
+# make a 1:1 mapping between them
+# sort out which files are texture vs non-texture resources
+class GNS(object):
+    def __init__(self, filepath):
+        mapdir = os.path.dirname(filepath)
+        filename = os.path.basename(filepath)
+        nameroot = os.path.splitext(filename)[0]
+
+        print(filepath, os.path.getsize(filepath))
+        file = open(filepath, 'rb')
+        self.allRecords = []
+        while True:
+            #def readStruct(file, struct):
+            #    return struct.from_buffer_copy(file.read(sizeof(struct)))
+            #r = readStruct(file, GNSRecord)
+            # but it could be incomplete right?
+            # file.read(numBytes) will fail gracefully
+            # but I think ctype.from_buffer_copy won't ...
+            sdata = file.read(sizeof(GNSRecord))
+            # TODO when is sdata not long enough?  only in the case of RESOURCE_EOF? always in that case?
+            # TODO must GNS be aligned to something?
+            sdata = sdata + b'\0' * (sizeof(GNSRecord) - len(sdata)) # pad?
+            r = GNSRecord.from_buffer_copy(sdata)
+            if r.resourceFlag == 1 and r.resourceType == GNSRecord.RESOURCE_EOF:
+                break
+            self.allRecords.append(r)
+        file.close()
+
+        self.allRecords.sort(key=lambda a: a.sector)
+
+        # now using sorted sectors and file suffixes, map all records to their files
+        allSectors = sorted(set(r.sector for r in self.allRecords))
+
+        # get all files in the same dir with matching prefix ...
+        allResFilenames = []
+        for fn in os.listdir(mapdir):
+            if fn != filename and os.path.splitext(fn)[0] == nameroot:
+                allResFilenames.append(fn)
+
+        # sort by filename suffix
+        allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
+        assert len(allSectors) == len(allResFilenames)
+
+        # map from sector back to resource filename
+        self.filenameForSector = {}
+        for (sector, resFn) in zip(allSectors, allResFilenames):
+            self.filenameForSector[sector] = resFn
+
+        #print(allSectors)
+        #print(allRes)
+
+        # enumerate unique (arrangement,night,weather) tuples
+        # sort them too, so the first one is our (0,0,0) initial state
+        self.allMapStates = sorted(set(r.getMapState() for r in self.allRecords))
+        #print('all map states:')
+        #print('arrangement / night / weather:')
+        #for s in self.allMapStates:
+        #    print(s)
+
+
+################################ texture resousre files ################################
+
+class TexBlob(ResourceBlob):
+    width = 256
+    height = 1024
+    # can python do this?
+    #rowsize = width >> 1
+    def __init__(self, record, filename, mapdir):
+        # maybe not?
+        self.rowsize = self.width >> 1
+        super().__init__(record, filename, mapdir)
+        data = self.readData()
+
+        # expand the 8-bits into separate 4-bits into an image double array
+        # this isn't grey, it's indexed into one of the 16 palettes.
+        # TODO store this just [] instead of [][]
+        pix44 = (TwoNibbles * len(data)).from_buffer_copy(data)
+        # pix8 = [colorIndex] in [0,15] integers
+        # which is faster?
+        """
+        pix8 = [
+            colorIndex
+            for y in range(self.height)
+            for x in range(self.rowsize)
+            for colorIndex in pix44[x + y * self.rowsize].toTuple()
+        ]
+        """
+        # vs
+        pix8 = [0] * (self.width * self.height)
+        dsti = 0
+        for srci in range(self.height * self.rowsize):
+            lohi = pix44[srci]
+            pix8[dsti] = lohi.lo
+            dsti += 1
+            pix8[dsti] = lohi.hi
+            dsti += 1
+
+        # here's the indexed texture, though it's not attached to anything
+        self.indexImg = bpy.data.images.new(self.filename + ' Tex Indexed', width=self.width, height=self.height)
+        self.indexImg.alpha_mode = 'NONE'
+        self.indexImg.colorspace_settings.name = 'Raw'
+        self.indexImg.pixels = [
+            ch
+            for colorIndex in pix8
+            for ch in (
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                (colorIndex+.5)/16.,
+                1.
+            )
+        ]
+
+    def writeTexture(self):
+        pixRGBA = self.indexImg.pixels
+        data = b''
+        for y in range(self.height):
+            for x in range(self.rowsize):
+                data += bytes(TwoNibbles(
+                    int(16. * pixRGBA[0 + 4 * (0 + 2 * (x + self.rowsize * y))]),
+                    int(16. * pixRGBA[0 + 4 * (1 + 2 * (x + self.rowsize * y))])
+                ))
+        assert len(self.textureFilenames) == 1
+        file = open(self.textureFilenames[0], 'wb')
+        file.write(data)
+        file.close()
+
+################################ non-texture resousre files ################################
+
 
 class MeshHeader(FFTStruct):
     _fields_ = [
@@ -382,68 +511,6 @@ assert sizeof(PalAnim) == 0x14
 
 
 
-
-# read the GNS records ... which are 20 bytes, or 8 bytes for the EOF
-# read the files in the same dir
-# make a 1:1 mapping between them
-# sort out which files are texture vs non-texture resources
-class GNS(object):
-    def __init__(self, filepath):
-        mapdir = os.path.dirname(filepath)
-        filename = os.path.basename(filepath)
-        nameroot = os.path.splitext(filename)[0]
-
-        print(filepath, os.path.getsize(filepath))
-        file = open(filepath, 'rb')
-        self.allRecords = []
-        while True:
-            #def readStruct(file, struct):
-            #    return struct.from_buffer_copy(file.read(sizeof(struct)))
-            #r = readStruct(file, GNSRecord)
-            # but it could be incomplete right?
-            # file.read(numBytes) will fail gracefully
-            # but I think ctype.from_buffer_copy won't ...
-            sdata = file.read(sizeof(GNSRecord))
-            # TODO when is sdata not long enough?  only in the case of RESOURCE_EOF? always in that case?
-            # TODO must GNS be aligned to something?
-            sdata = sdata + b'\0' * (sizeof(GNSRecord) - len(sdata)) # pad?
-            r = GNSRecord.from_buffer_copy(sdata)
-            if r.resourceFlag == 1 and r.resourceType == GNSRecord.RESOURCE_EOF:
-                break
-            self.allRecords.append(r)
-        file.close()
-
-        self.allRecords.sort(key=lambda a: a.sector)
-
-        # now using sorted sectors and file suffixes, map all records to their files
-        allSectors = sorted(set(r.sector for r in self.allRecords))
-
-        # get all files in the same dir with matching prefix ...
-        allResFilenames = []
-        for fn in os.listdir(mapdir):
-            if fn != filename and os.path.splitext(fn)[0] == nameroot:
-                allResFilenames.append(fn)
-
-        # sort by filename suffix
-        allResFilenames.sort(key=lambda fn: int(os.path.splitext(fn)[1][1:]))
-        assert len(allSectors) == len(allResFilenames)
-
-        # map from sector back to resource filename
-        self.filenameForSector = {}
-        for (sector, resFn) in zip(allSectors, allResFilenames):
-            self.filenameForSector[sector] = resFn
-
-        #print(allSectors)
-        #print(allRes)
-
-        # enumerate unique (arrangement,night,weather) tuples
-        # sort them too, so the first one is our (0,0,0) initial state
-        self.allMapStates = sorted(set(r.getMapState() for r in self.allRecords))
-        #print('all map states:')
-        #print('arrangement / night / weather:')
-        #for s in self.allMapStates:
-        #    print(s)
-
 ################################ classes ################################
 
 class VertexTex(object):
@@ -545,6 +612,12 @@ class Chunk(object):
         self.ofs += sizeof(cl)
         return res
 
+# TODO is there a way to read ctypes fixed endianness outside a struct/union?
+class VisAngleFlags(FFTStruct):
+    _fields_ = [
+        ('v', c_uint16),
+    ]
+
 class VisAngleChunk(Chunk):
     # res isn't used.  just here for ctor consistency with other chunks.
     def __init__(self, data, res):
@@ -556,11 +629,10 @@ class VisAngleChunk(Chunk):
         # reading chunk 0x2c
         # from the 'writeVisAngles' function looks like this is written to a 1024 byte block always
         self.header = self.readBytes(0x380)
-        # TODO how to associate endian-ness with a primitive type?
-        self.triTexVisAngles = self.read(c_uint16 * 512)
-        self.quadTexVisAngles = self.read(c_uint16 * 768)
-        self.triUntexVisAngles = self.read(c_uint16 * 64)
-        self.quadUntexVisAngles = self.read(c_uint16 * 256)
+        self.triTexVisAngles = self.read(VisAngleFlags * 512)
+        self.quadTexVisAngles = self.read(VisAngleFlags * 768)
+        self.triUntexVisAngles = self.read(VisAngleFlags * 64)
+        self.quadUntexVisAngles = self.read(VisAngleFlags * 256)
         self.footer = self.readBytes()
         # does this mean we can only have 512 tex'd tris/tex'd quads/untex'd tris/untex'd quads?
         # GaneshaDx has these constants:
@@ -607,6 +679,12 @@ class VisAngleChunk(Chunk):
             + self.footer
         )
 
+# forcing little-endian-ness via ctypes struct
+class UntexUnknown(FFTStruct):
+    _fields_ = [
+        ('v', c_uint32),
+    ]
+
 # writing depends on the existence of the blender mesh
 # and the blender mesh is going to have custom face attributes
 # and only one of those custom face attributes is going to be the visangles
@@ -639,9 +717,8 @@ class MeshChunk(Chunk):
         #  3165114279 / 0xbca7cfa7
         #  2055616955 / 0x7a8639bb
         #  934824 / 0xe43a8
-        # TODO how to associate endian-ness with a primitive type?
-        self.triUntexUnknowns = self.read(c_uint32 * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
-        self.quadUntexUnknowns = self.read(c_uint32 * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
+        self.triUntexUnknowns = self.read(UntexUnknown * self.hdr.numTriUntex) # then comes unknown 4 bytes per untex-tri
+        self.quadUntexUnknowns = self.read(UntexUnknown * self.hdr.numQuadUntex) # then comes unknown 4 bytes per untex-quad
         #print('self.triUntexUnknowns', list(self.triUntexUnknowns))
         #print('self.quadUntexUnknowns', list(self.quadUntexUnknowns))
 
@@ -727,45 +804,50 @@ class MeshChunk(Chunk):
             data += bytes(polygon.tilePos)
         return data
 
-# colors are RGBA5551 array
-def palToImg(name, colors):
-    img = bpy.data.images.new(name, width=len(colors), height=1)
-    img.pixels = [
-        ch
-        for color in colors
-        for ch in color.toTuple()
-    ]
-    return img
-
-def palImgToBytes(palImg):
-    data = b''
-    pixRGBA = palImg.pixels
-    for i in range(len(pixRGBA)/4):
-        data += bytes(RGBA5551.fromRGBA(
-            pixRGBA[0 + 4 * i],
-            pixRGBA[1 + 4 * i],
-            pixRGBA[2 + 4 * i],
-            pixRGBA[3 + 4 * i]
-        ))
-    return data
-
+import bpy
+from bpy_extras import node_shader_utils
 
 class PalChunk(Chunk):
     def __init__(self, data, res):
         super().__init__(data)
         # reading chunk
         self.imgs = [
-            palToImg(
+            self.palToImg(
                 res.filename + ' ' + self.ident + ' Pal Tex ' + str(i),
                 self.read(RGBA5551 * 16)
             ) for i in range(16)]
         # done reading chunk
 
+    @staticmethod
+    def palToImg(name, colors):
+        img = bpy.data.images.new(name, width=len(colors), height=1)
+        img.pixels = [
+            ch
+            for color in colors
+            for ch in color.toTuple()
+        ]
+        return img
+
+ 
     def toBin(self):
         data = b''
         for img in self.imgs:
-            data += palImgToBytes(img)
+            data += self.palImgToBytes(img)
         return data
+
+    @staticmethod
+    def palImgToBytes(palImg):
+        data = b''
+        pixRGBA = palImg.pixels
+        for i in range(len(pixRGBA)/4):
+            data += bytes(RGBA5551.fromRGBA(
+                pixRGBA[0 + 4 * i],
+                pixRGBA[1 + 4 * i],
+                pixRGBA[2 + 4 * i],
+                pixRGBA[3 + 4 * i]
+            ))
+        return data
+
 
 class ColorPalChunk(PalChunk): # 0x11
     ident = 'Color'
@@ -1074,15 +1156,80 @@ class PalAnimChunk(Chunk):
 def countSectors(size):
     return (size >> 11) + (1 if size & ((1<<11)-1) else 0)
 
+# chunks used in maps 001 thru 119:
+# in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
+# missing:
+# in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
+# ... seems like the first 64 bytes are used for something else
+numChunks = 49
+
+
+# Header for non-texture resources
+# Use this over just c_uint32 * 49 because this has endian-ness support
+# Otherwise just (c_uint32 * 49) is easier to deal with (less indirections)
+# But I don't see a way to specify endian-ness in ctypes of primitives or arrays of primitives
+# Also, make this one field per uint32 (no arrays, etc) so that I can enumerate it like a uint32 array
+# I would just make a struct of the whole thing being a single field of an array, just to get little-endian-ness
+#  but meh, while here, why not name the fields too.
+class ResHeaderFields(FFTStruct):
+    _fields_ = [
+        ('_00', c_uint32),
+        ('_01', c_uint32),
+        ('_02', c_uint32),
+        ('_03', c_uint32),
+        ('_04', c_uint32),
+        ('_05', c_uint32),
+        ('_06', c_uint32),
+        ('_07', c_uint32),
+        ('_08', c_uint32),
+        ('_09', c_uint32),
+        ('_0a', c_uint32),
+        ('_0b', c_uint32),
+        ('_0c', c_uint32),
+        ('_0d', c_uint32),
+        ('_0e', c_uint32),
+        ('_0f', c_uint32),
+        ('mesh', c_uint32),
+        ('colorPals', c_uint32),
+        ('_12', c_uint32),
+        ('_13', c_uint32),
+        ('_14', c_uint32),
+        ('_15', c_uint32),
+        ('_16', c_uint32),
+        ('_17', c_uint32),
+        ('_18', c_uint32),
+        ('lights', c_uint32),
+        ('terrain', c_uint32),
+        ('texAnim', c_uint32),
+        ('palAnim', c_uint32),
+        ('_1d', c_uint32),
+        ('_1e', c_uint32),
+        ('grayPals', c_uint32),
+        ('_20', c_uint32),
+        ('_21', c_uint32),
+        ('_22', c_uint32),
+        ('meshAnimBase', c_uint32),
+        ('meshAnim0', c_uint32),
+        ('meshAnim1', c_uint32),
+        ('meshAnim2', c_uint32),
+        ('meshAnim3', c_uint32),
+        ('meshAnim4', c_uint32),
+        ('meshAnim5', c_uint32),
+        ('meshAnim6', c_uint32),
+        ('meshAnim7', c_uint32),
+        ('visAngles', c_uint32),
+    ]
+assert sizeof(ResHeaderFields) == 4 * numChunks
+
+class ResHeader(FFTUnion):
+    _fields_ = [
+        ('fields', ResHeaderFields),
+        ('v', (c_uint32 * numChunks)),
+    ]
+assert sizeof(ResHeader) == 4 * numChunks
+
 class NonTexBlob(ResourceBlob):
     
-    # chunks used in maps 001 thru 119:
-    # in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
-    # missing:
-    # in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
-    # ... seems like the first 64 bytes are used for something else
-    numChunks = 49
-
     CHUNK_MESH = 0x10
     CHUNK_COLORPALS = 0x11
     # 0x12 is unused
@@ -1133,17 +1280,16 @@ class NonTexBlob(ResourceBlob):
         # store here just for chunks to use.  I could pass it through to chunks individually , but , meh...
         self.gns = gns
 
-        # TODO how does ctypes associate endian-ness with a primitive type?
-        self.header = (c_uint32 * self.numChunks).from_buffer_copy(data)
+        self.header = ResHeader.from_buffer_copy(data)
 
         chunks = [None] * self.numChunks
-        for i, entry in enumerate(self.header):
-            begin = self.header[i]
+        for i, entry in enumerate(self.header.v):
+            begin = self.header.v[i]
             if begin:
                 end = None
                 for j in range(i + 1, self.numChunks):
-                    if self.header[j]:
-                        end = self.header[j]
+                    if self.header.v[j]:
+                        end = self.header.v[j]
                         break
                 if end == None:
                     end = len(data)
@@ -1165,10 +1311,10 @@ class NonTexBlob(ResourceBlob):
                     cl = self.chunkIOClasses[i]
                     return self.chunkIOs[i] = cl(data, self)
 
-        self.visAngleChunk = readChunk(CHUNK_VISANGLES)    # needs to be read before meshChunk
-        self.meshChunk = readChunk(CHUNK_MESH)        # needs to be read after visAngleChunk
+        self.visAngleChunk = readChunk(CHUNK_VISANGLES)     # needs to be read before meshChunk
+        self.meshChunk = readChunk(CHUNK_MESH)              # needs to be read after visAngleChunk
         self.colorPalChunk = readChunk(CHUNK_COLORPALS)
-        self.lightChunk = readChunk(CHUNK_LIGHTS)       # this needs bbox if it exists, which is calculated in meshChunk's ctor
+        self.lightChunk = readChunk(CHUNK_LIGHTS)           # this needs bbox if it exists, which is calculated in meshChunk's ctor
         self.terrainChunk = readChunk(CHUNK_TERRAIN)
         self.texAnimChunk = readChunk(CHUNK_TEX_ANIM)
         self.palAnimChunk = readChunk(CHUNK_PAL_ANIM)
@@ -1183,14 +1329,14 @@ class NonTexBlob(ResourceBlob):
                     chunks[i] = io.toBin()
         
         # now write the header
-        ofs = sizeof(self.header)
+        ofs = sizeof(self.header.v)
         for (i, chunk) in enumerate(chunks):
             if chunk:
-                self.header[i] = ofs
+                self.header.v[i] = ofs
                 ofs += len(chunk)
             else:
-                self.header[i] = 0
-        data = bytes(self.header)
+                self.header.v[i] = 0
+        data = bytes(self.header.v)
         for chunk in chunks:
             data += chunk
         newNumSectors = countSectors(len(data))
@@ -1202,69 +1348,3 @@ class NonTexBlob(ResourceBlob):
         file = open(self.filepath, 'wb')
         file.write(data)
         file.close()
-
-class TexBlob(ResourceBlob):
-    width = 256
-    height = 1024
-    # can python do this?
-    #rowsize = width >> 1
-    def __init__(self, record, filename, mapdir):
-        # maybe not?
-        self.rowsize = self.width >> 1
-        super().__init__(record, filename, mapdir)
-        data = self.readData()
-
-        # expand the 8-bits into separate 4-bits into an image double array
-        # this isn't grey, it's indexed into one of the 16 palettes.
-        # TODO store this just [] instead of [][]
-        pix44 = (TwoNibbles * len(data)).from_buffer_copy(data)
-        # pix8 = [colorIndex] in [0,15] integers
-        # which is faster?
-        """
-        pix8 = [
-            colorIndex
-            for y in range(self.height)
-            for x in range(self.rowsize)
-            for colorIndex in pix44[x + y * self.rowsize].toTuple()
-        ]
-        """
-        # vs
-        pix8 = [0] * (self.width * self.height)
-        dsti = 0
-        for srci in range(self.height * self.rowsize):
-            lohi = pix44[srci]
-            pix8[dsti] = lohi.lo
-            dsti += 1
-            pix8[dsti] = lohi.hi
-            dsti += 1
-
-        # here's the indexed texture, though it's not attached to anything
-        self.indexImg = bpy.data.images.new(self.filename + ' Tex Indexed', width=self.width, height=self.height)
-        self.indexImg.alpha_mode = 'NONE'
-        self.indexImg.colorspace_settings.name = 'Raw'
-        self.indexImg.pixels = [
-            ch
-            for colorIndex in pix8
-            for ch in (
-                (colorIndex+.5)/16.,
-                (colorIndex+.5)/16.,
-                (colorIndex+.5)/16.,
-                1.
-            )
-        ]
-
-    def writeTexture(self):
-        pixRGBA = self.indexImg.pixels
-        data = b''
-        for y in range(self.height):
-            for x in range(self.rowsize):
-                data += bytes(TwoNibbles(
-                    int(16. * pixRGBA[0 + 4 * (0 + 2 * (x + self.rowsize * y))]),
-                    int(16. * pixRGBA[0 + 4 * (1 + 2 * (x + self.rowsize * y))])
-                ))
-        assert len(self.textureFilenames) == 1
-        file = open(self.textureFilenames[0], 'wb')
-        file.write(data)
-        file.close()
-
-
