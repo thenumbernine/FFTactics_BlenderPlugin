@@ -334,6 +334,8 @@ class BlenderNonTexBlob(gns.NonTexBlob):
 
 # this class has become a GNS wrapper + collection of all mapstates
 class BlenderGNS(gns.GNS):
+    TexBlob = BlenderTexBlob
+    NonTexBlob = BlenderNonTexBlob
     def __init__(self,
         filepath,
         progress,
@@ -343,20 +345,15 @@ class BlenderGNS(gns.GNS):
         global_scale_z,
         global_matrix
     ):
-        super().__init__(filepath)
-
         progress.enter_substeps(1, "Importing GNS %r..." % filepath)
-
         self.loadCommon()
-
-        self.readGNS()
+        
+        super().__init__(filepath)
+        
+        if len(self.allMapStates) == 0:
+            raise Exception("sorry there's no map states for this map...")
 
         progress.enter_substeps(3, "Parsing GNS file...")
-
-        # bail out if we're just reading headers and not building scenes
-        # TODO separate the GNS reading from the Blender building?
-        if context == None:
-            return
 
         self.collections = []
         for (i, mapState) in enumerate(self.allMapStates):
@@ -386,42 +383,6 @@ class BlenderGNS(gns.GNS):
 
         progress.leave_substeps("Done.")
         progress.leave_substeps("Finished importing: %r" % filepath)
-
-
-    def readGNS(self):
-        super().readGNS()
-
-        if len(self.allMapStates) == 0:
-            raise Exception("sorry there's no map states for this map...")
-
-        # now, here, per resource file, load *everything* you can
-        # I'm gonna put everything inside blender first and then sort it out per-scene later
-
-        self.allTexRes = []
-        self.allMeshRes = []
-        for (i, r) in enumerate(self.allRecords):
-            print('record', self.filenameForSector[r.sector], str(r), end='')
-            if r.resourceType == r.RESOURCE_TEXTURE:
-                print('...tex')
-                self.allTexRes.append(BlenderTexBlob(
-                    r,
-                    self.filenameForSector[r.sector],
-                    self.mapdir
-                ))
-            elif (r.resourceType == r.RESOURCE_MESH_INIT
-                or r.resourceType == r.RESOURCE_MESH_REPL
-                or r.resourceType == r.RESOURCE_MESH_ALT):
-                res = BlenderNonTexBlob(
-                    r,
-                    self.filenameForSector[r.sector],
-                    self.mapdir,
-                    self
-                )
-                print('...res w/chunks '+str([i for i, e in enumerate(res.header.v) if e != 0]))
-                self.allMeshRes.append(res)
-            # else keep it anywhere?
-
-
 
     # create blender nodes used by everything
     def loadCommon(self):
@@ -460,65 +421,7 @@ class BlenderGNS(gns.GNS):
         self.terrainMat = terrainMat
 
     def setMapState(self, mapState):
-        """
-        what if there's more than 1 texture?
-        map000 has no textures
-        map051 and map105 have two textures (how are those extra textures referenced in the map file? tex face page?)
-        map099, 116, 117, 118, 119, 120 can't find the mesh chunk?
-        #assert len(self.textureFilenames) == 1
-
-        ex map001
-        has 19 dif tex (0x17)
-        has 1 mesh_init (0x2e)
-        has 1 mesh_repl (0x2f)
-        has 19 dif mesh_alt (0x30)
-        has 1 eof (0x31)
-
-        ex map002
-        has 20 dif texture (0x17) resources?
-        has 1 dif mesh_repl (0x2f)
-        has 19 dif mesh_alt (0x30)
-        has 1 eof (0x31)
-        """
-
-        mapConfigIndex, dayNight, weather = mapState
-        #print("setting config", mapConfigIndex, dayNight, weather)
-        # now pick one ...
-        # or somehow let the user decide which one to pick?
-        #mapState = (mapConfigIndex, dayNight, weather)
-        #mapState = self.allMapStates[0]
-        #mapState = self.allMapStates[1]
-        #mapState = (1,1,4)
-        # are all configurations defined for all maps?
-        # TODO
-
-        # now set the map state to its default: arrangement==0, weather==0 night==0
-        # what about maps that don't have this particular state?
-        # how about instead, sort all states, and pick the one closest to this ...
-        self.nonTexRess = list(filter(
-            lambda r: r.record.getMapState() == mapState
-                # ... right?  I also want the init mesh in here, right?
-                or r.record.resourceType == r.record.RESOURCE_MESH_INIT,
-            self.allMeshRes))
-        self.texRess = []
-        for i, r in enumerate(self.allTexRes):
-            # always keep the first one?  and pick the last one? same as init mesh?  not sure
-            # but map001 arrangement=1 day weather=0 is missing a texture ...
-            if r.record.getMapState() == mapState or i == 0:
-                self.texRess.append(r)
-
-        # ... what order does the records() chunks[] system work?
-        #self.nonTexRess.reverse()
-
-        # map from mesh and texture record to mesh filename
-        getPathForRes = lambda r: r.filename
-        #print('nonTextureFilenames', list(map(getPathForRes, self.nonTexRess)))
-        #print('textureFilenames', list(map(getPathForRes, self.texRess)))
-
-
-        # update fields ...
-        # ... tho maybe do this another way ...
-        # TODO instead of setFields / getattr, how about a 'getField' method that does the same?
+        super().setMapState(mapState)
 
         # copy texture resource fields
 
@@ -529,24 +432,6 @@ class BlenderGNS(gns.GNS):
             if len(self.texRess) > 2:   # >2 since i'm adding tex 0 always
                 print("hmm, we got "+str(len(self.texRess))+" textures...")
 
-        # copy mesh resource fields
-
-        def setResField(field):
-            for res in self.nonTexRess:
-                if hasattr(res, field):
-                    value = getattr(res, field)
-                    # TODO should I ever have None be valid?
-                    if value != None:
-                        setattr(self, field, value)
-                        return
-        for field in [
-            'meshChunk',
-            'colorPalChunk',
-            'grayPalChunk',
-            'lightChunk',
-            'terrainChunk'
-        ]:
-            setResField(field)
 
     # build a collection per-map-state.
     # return it and map stores it in .collections
@@ -667,8 +552,8 @@ class BlenderGNS(gns.GNS):
 
                 if isTexd:
                     meshVtxTCs.append((
-                        (v.texcoord.x + .5) / BlenderTexBlob.width,
-                        (256 * s.texFace.page + v.texcoord.y + .5) / BlenderTexBlob.height
+                        (v.texcoord.x + .5) / self.TexBlob.width,
+                        (256 * s.texFace.page + v.texcoord.y + .5) / self.TexBlob.height
                     ))
                     meshVtxNormals.append(v.normal.toTuple())
                 else:
@@ -819,10 +704,13 @@ def load(context,
         """
         if True:
             mapdir = os.path.dirname(filepath)
-            for i in range(1,126):
+            for i in range(126):
                 fn = os.path.join(mapdir, f'MAP{i:03d}.GNS')
                 print('Loading', fn)
-                BlenderGNS(fn, progress, None, None, None, None, None)
+                try:
+                    gns.GNS(fn, progress, None, None, None, None, None)
+                except Exception as e:
+                    print("failed with error", e
             print("DONE")
             raise "raise"
         """
