@@ -1,6 +1,7 @@
 # https://ffhacktics.com/wiki/Maps/Mesh
 # https://ffhacktics.com/wiki/Maps/GNS
 
+import math
 import array
 import os
 import os.path
@@ -37,7 +38,7 @@ class BlenderTexBlob(gns.TexBlob):
                 1.
             )
         ]
-    
+
     def writeTexture(self, filepath):
         pixRGBA = self.indexImg.pixels
         data = b''
@@ -61,14 +62,14 @@ class BlenderPalChunk(gns.PalChunk):
             for ch in color.toTuple()
         ]
         return img
-   
+
     def __init__(self, data, res):
         super().__init__(data, res)
         self.imgs = [
             self.palToImg(
                 res.filename + ' ' + self.ident + ' Pal Tex ' + str(i),
-                self.colors
-            ) for i in range(16)]
+                colors
+            ) for (i, colors) in enumerate(self.pals)]
 
     @staticmethod
     def palImgToBytes(palImg):
@@ -95,12 +96,236 @@ class BlenderColorPalChunk(BlenderPalChunk):
 class BlenderGrayPalChunk(BlenderPalChunk):
     ident = 'Gray'
 
+class BlenderLightChunk(gns.LightChunk):
+    def __init__(self, data, res):
+        super().__init__(data, res)
+
+        center = (0,0,0)
+        cornerPos = (0,0,0)
+        if res.meshChunk != None:
+            cornerPos = res.meshChunk.bbox[0]
+            center = res.meshChunk.center
+
+        # directional lights
+        # https://stackoverflow.com/questions/17355617/can-you-add-a-light-source-in-blender-using-python
+        self.dirLightObjs = []
+        for i in range(3):
+            lightName = res.filename + ' Light '+str(i)
+            lightData = bpy.data.lights.new(name=lightName, type='SUN')
+            lightData.energy = 20       # ?
+            lightData.color = self.dirLightColors.ithToTuple(i)
+            lightData.angle = math.pi
+            lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
+            # matrix_world rotate y- to z+ ...
+            #lightObj.matrix_world = global_matrix
+            # alright, how come with mesh, I can assign the matrix_world then assign the scale, and it rotates scales
+            # but with this light, I apply matrix_world then I apply location, and the matrix_world is gone?
+            # python is a languge without any block scope and with stupid indent rules.  it encourages polluting function namespaces.
+            lightPos = (
+                cornerPos[0] / 28 + i,
+                cornerPos[2] / 24,
+                -cornerPos[1] / 28
+            )
+            lightObj.location = lightPos[0], lightPos[1], lightPos[2]
+            # calculate lightObj Euler angles by dirLightDirs
+            # TODO figure out which rotates which...
+            dir = self.dirLightDirs[i].toTuple()
+            #print('light dir', dir)
+            eulerAngles = (
+                math.atan2(math.sqrt(dir[0]*dir[0] + dir[2]*dir[2]), dir[1]), # pitch
+                math.atan2(dir[2], dir[0]),  # yaw
+                0
+               )
+            lightObj.rotation_euler = eulerAngles[0], eulerAngles[1], eulerAngles[2]
+            # hmm, this doesn't update like some random page said.
+            #view_layer.update() # should transform the lightObj's (location, rotation_euler, scale) to its ... matrix?  matrix_locl? matrix_world? where int hee world is this documented?
+            # setting matrix_world clears (location, rotation_euler, scale) ...
+            # so does transforming it via '@'
+            # even after calling view_layer.update()
+            # best answer yet: https://blender.stackexchange.com/a/169424
+            self.dirLightObjs.append(lightObj)
+
+
+        # ambient light?  in blender?
+        lightName = res.filename+' Ambient'
+        lightData = bpy.data.lights.new(name=lightName, type='SUN')
+        lightData.energy = 20       # ?
+        lightData.color = self.ambientLightColor.toTuple()
+        lightData.angle = math.pi
+        lightObj = bpy.data.objects.new(name=lightName, object_data=lightData)
+        #lightObj.matrix_world = global_matrix
+        lightPos = (
+            cornerPos[0] / 28 + 3,
+            cornerPos[2] / 24,
+            -cornerPos[1] / 28
+        )
+        lightObj.location = lightPos[0], lightPos[1], lightPos[2]
+        self.ambLightObj = lightObj
+
+
+        # setup bg mesh mat
+
+        bgMat = bpy.data.materials.new(res.filename + ' Bg Mat')
+        bgMat.use_backface_culling = True
+        bgMatWrap = node_shader_utils.PrincipledBSDFWrapper(bgMat, is_readonly=False)
+        bgMatWrap.use_nodes = True
+
+        bsdf = bgMat.node_tree.nodes['Principled BSDF']
+        bgMixNode = bgMat.node_tree.nodes.new('ShaderNodeMixRGB')
+        bgMixNode.location = (-200, 0)
+        bgMixNode.inputs[1].default_value[:3] = self.backgroundColors[0].toTuple()
+        bgMixNode.inputs[2].default_value[:3] = self.backgroundColors[1].toTuple()
+        bgMat.node_tree.links.new(bsdf.inputs['Base Color'], bgMixNode.outputs[0])
+
+        bgMapRangeNode = bgMat.node_tree.nodes.new('ShaderNodeMapRange')
+        bgMapRangeNode.location = (-400, 0)
+        bgMapRangeNode.inputs['From Min'].default_value = 20.
+        bgMapRangeNode.inputs['From Max'].default_value = -20.
+        bgMapRangeNode.inputs['To Min'].default_value = 0.
+        bgMapRangeNode.inputs['To Max'].default_value = 1.
+        bgMat.node_tree.links.new(bgMixNode.inputs['Fac'], bgMapRangeNode.outputs[0])
+
+        bgSepNode = bgMat.node_tree.nodes.new('ShaderNodeSeparateXYZ')
+        bgSepNode.location = (-600, 0)
+        bgMat.node_tree.links.new(bgMapRangeNode.inputs['Value'], bgSepNode.outputs['Z'])
+
+        bgGeomNode = bgMat.node_tree.nodes.new('ShaderNodeNewGeometry')
+        bgGeomNode.location = (-800, 0)
+        bgMat.node_tree.links.new(bgSepNode.inputs['Vector'], bgGeomNode.outputs['Position'])
+
+
+        # ... but the most common way of doing a skybox in blender is ...
+        # ... overriding the world background
+        # so ... what to do.
+        # just put a big sphere around the outside?
+        #  but how come when I do this, the sphere backface-culls, even when backface-culling is disabled?
+        #  why does alpha not work when alpha-clipping or alpha-blending is enabled?
+        #  and why did the goblin turn on the stove?
+        # https://blender.stackexchange.com/questions/39409/how-can-i-make-the-outside-of-a-sphere-transparent
+        #  or just make a background sphere ...
+        # https://blender.stackexchange.com/questions/93298/create-a-uv-sphere-object-in-blender-from-python
+        bgmesh = bpy.data.meshes.new(res.filename + ' Bg')
+        bgmesh.materials.append(bgMat)
+        bgmeshObj = bpy.data.objects.new(bgmesh.name, bgmesh)
+        bgmeshObj.location = center[0]/28., center[1]/24., center[2]/28.
+        bgmeshObj.scale = 20., 20., 20.
+
+        # make the mesh a sphere
+        import bmesh
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=5)
+        for f in bm.faces:
+            # flip the normals so that, with backface culling, we will always see the sphere around the map and behind the map
+            f.normal_flip()
+            # set smooth shading
+            f.smooth = True
+        bm.normal_update()
+
+        bm.to_mesh(bgmeshObj.data)
+        bm.free()
+
+        self.bgmeshObj = bgmeshObj
+
+class BlenderTerrainChunk(gns.TerrainChunk):
+    def __init__(self, data, res):
+        super().__init__(data, res)
+
+        ### create the terrain
+
+        def makeTerrainObjForLayer(y):
+            nonlocal res
+            # vertexes of a [-.5, .5]^2 quad
+            quadVtxs = [
+                [-.5, -.5],
+                [-.5, .5],
+                [.5, .5],
+                [.5, -.5]
+            ]
+            # from GaneshaDx ... seems like there should be some kind of bitfield per modified vertex ...
+            liftPerVertPerSlopeType = [
+                [0x25, 0x58, 0x14, 0x66, 0x69, 0x99],
+                [0x85, 0x58, 0x44, 0x96, 0x69, 0x99],
+                [0x85, 0x52, 0x41, 0x96, 0x66, 0x99],
+                [0x52, 0x25, 0x11, 0x96, 0x66, 0x69],
+            ]
+
+            vtxs = []
+            faces = []
+            tilesFlattened = []
+            for z in range(self.terrainSize[1]):
+                for x in range(self.terrainSize[0]):
+                    tile = self.terrainTiles[y][z][x]
+                    vi = len(vtxs)
+                    faces.append([vi+0, vi+1, vi+2, vi+3])
+                    for (i, q) in enumerate(quadVtxs):
+                        vtxs.append((
+                            x + .5 + q[0],
+                            -.5 * (tile.halfHeight + (tile.slopeHeight if tile.slopeType in liftPerVertPerSlopeType[i] else 0)),
+                            z + .5 + q[1]
+                        ))
+                    tilesFlattened.append(tile)
+            mesh = bpy.data.meshes.new(res.filename + ' Terrain'+str(y))
+            mesh.materials.append(res.gns.terrainMat)
+            mesh.from_pydata(vtxs, [], faces)
+            terrainMeshObj = bpy.data.objects.new(mesh.name, mesh)
+            terrainMeshObj.hide_render = True
+
+            tagNames = [
+                'surfaceType',
+                'depth',
+                'cantCursor',
+                'cantWalk',
+                'rotFlags',
+                'unk0_6',
+                'unk1',
+                'unk5',
+                'unk6_2'
+                # TODO visAngles
+                # via terrain mesh
+                #'halfHeight',
+                #'slopeHeight',
+                #'slopeType',
+            ]
+
+            # custom per-face attributes for the terrain:
+            # doI have to do this once at all, or once per mesh?
+            # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
+            import bmesh
+            bm = bmesh.new()
+            if bpy.context.mode == 'EDIT_MESH':
+                bm.from_edit_mesh(terrainMeshObj.data)
+            else:
+                bm.from_mesh(terrainMeshObj.data)
+            tags = {}
+            for name in tagNames:
+                tags[name] = bm.faces.layers.int.new(name)
+                tags[name] = bm.faces.layers.int.get(name)
+            # example says to write to bm.edges[faceNo] to change a face property ... ?
+            # but they read from bm.faces[faceNo] ... wtf?
+            # ... BMElemSeq[index]: outdated internal index table, run ensure_lookup_table() first
+            bm.faces.ensure_lookup_table()
+            for (i, tile) in enumerate(tilesFlattened):
+                for name in tagNames:
+                    bm.faces[i][tags[name]] = getattr(tile, name)
+            if bpy.context.mode == 'EDIT_MESH':
+                bm.updated_edit_mesh(terrainMeshObj.data)
+            else:
+                bm.to_mesh(terrainMeshObj.data)
+            bm.free()
+
+            return terrainMeshObj
+
+        self.terrainMeshObjs = []
+        for y in range(2):
+            self.terrainMeshObjs.append(makeTerrainObjForLayer(y))
+
+
 class BlenderNonTexBlob(gns.NonTexBlob):
     chunkIOClasses = {
         gns.CHUNK_MESH : gns.MeshChunk,
         gns.CHUNK_COLORPALS : BlenderColorPalChunk,
-        gns.CHUNK_LIGHTS : gns.LightChunk,
-        gns.CHUNK_TERRAIN : gns.TerrainChunk,
+        gns.CHUNK_LIGHTS : BlenderLightChunk,
+        gns.CHUNK_TERRAIN : BlenderTerrainChunk,
         gns.CHUNK_TEX_ANIM : gns.TexAnimChunk,
         #gns.CHUNK_PAL_ANIM : gns.PalAnimChunk,
         gns.CHUNK_GRAYPALS : BlenderGrayPalChunk,
