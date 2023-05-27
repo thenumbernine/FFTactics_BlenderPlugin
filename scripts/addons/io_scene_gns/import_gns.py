@@ -108,7 +108,7 @@ class Map(object):
                     self.mapdir,
                     self
                 )
-                print('...res w/chunks '+str([i for i, e in enumerate(res.header) if e != 0]))
+                print('...res w/chunks '+str([i for i, e in enumerate(res.header.v) if e != 0]))
                 self.allMeshRes.append(res)
             # else keep it anywhere?
 

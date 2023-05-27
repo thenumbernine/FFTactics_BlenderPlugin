@@ -13,8 +13,13 @@ class FFTData:
     def __str__(self):
         return '{'+', '.join(x[0]+'='+str(getattr(self, x[0])) for x in self._fields_)+'}'
 
+""" hmm 'new in 3.11' looks like Blender (python 3.10.9) needs to upgrade?
 class FFTUnion(LittleEndianUnion, FFTData):
+    pass
+"""
+
 class FFTStruct(LittleEndianStructure, FFTData):
+    pass
 
 # list of these in the GNS file that direct us to other resources
 # what to call it? resource? resource header?
@@ -165,6 +170,25 @@ class GNS(object):
         #for s in self.allMapStates:
         #    print(s)
 
+################################ resousre files ################################
+
+class ResourceBlob(object):
+    def __init__(self, record, filename, mapdir):
+        self.record = record
+        # extension-index:
+        self.ext = int(os.path.splitext(filename)[1][1:])
+        # after ctor, sort filenames then match with sectors, then write this.
+        self.sector = None
+        self.filename = filename
+        self.filepath = os.path.join(mapdir, filename)
+
+    # read whole file as one blob
+    def readData(self):
+        file = open(self.filepath, 'rb')
+        data = file.read()
+        file.close()
+        return data
+
 
 ################################ texture resousre files ################################
 
@@ -232,7 +256,7 @@ class TexBlob(ResourceBlob):
         file.write(data)
         file.close()
 
-################################ non-texture resousre files ################################
+################################ non-texture resousre structs ################################
 
 
 class MeshHeader(FFTStruct):
@@ -509,9 +533,133 @@ class PalAnim(FFTStruct):
     ]
 assert sizeof(PalAnim) == 0x14
 
+# TODO is there a way to read ctypes fixed endianness outside a struct/union?
+class VisAngleFlags(FFTStruct):
+    _fields_ = [
+        ('v', c_uint16),
+    ]
+
+# forcing little-endian-ness via ctypes struct
+class UntexUnknown(FFTStruct):
+    _fields_ = [
+        ('v', c_uint32),
+    ]
+
+# chunks used in maps 001 thru 119:
+# in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
+# missing:
+# in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
+# ... seems like the first 64 bytes are used for something else
+NUM_CHUNKS = 49
+
+CHUNK_MESH = 0x10
+CHUNK_COLORPALS = 0x11
+# 0x12 is unused
+# 0x13 is only nonzero for map000.5
+# 0x14..0x18 is unused
+CHUNK_LIGHTS = 0x19
+CHUNK_TERRAIN = 0x1a
+CHUNK_TEX_ANIM = 0x1b
+# is this rgba palettes or is it another texAnim set?
+CHUNK_PAL_ANIM = 0x1c
+# 0x1d is unused
+# 0x1e is unused
+CHUNK_GRAYPALS = 0x1f
+# 0x20 is unused
+# 0x21 is unused
+# 0x22 is unused
+# 0x23 is mesh animation info
+# 0x24..0x2b = animated meshes 0-7
+CHUNK_MESH_ANIM_BASE = 0x23
+CHUNK_MESH_ANIM0 = 0x24
+CHUNK_MESH_ANIM1 = 0x25
+CHUNK_MESH_ANIM2 = 0x26
+CHUNK_MESH_ANIM3 = 0x27
+CHUNK_MESH_ANIM4 = 0x28
+CHUNK_MESH_ANIM5 = 0x29
+CHUNK_MESH_ANIM6 = 0x2a
+CHUNK_MESH_ANIM7 = 0x2b
+CHUNK_VISANGLES = 0x2c
+
+# Header for non-texture resources
+# Use this over just c_uint32 * 49 because this has endian-ness support
+# Otherwise just (c_uint32 * 49) is easier to deal with (less indirections)
+# But I don't see a way to specify endian-ness in ctypes of primitives or arrays of primitives
+# Also, make this one field per uint32 (no arrays, etc) so that I can enumerate it like a uint32 array
+# I would just make a struct of the whole thing being a single field of an array, just to get little-endian-ness
+#  but meh, while here, why not name the fields too.
+class ResHeaderFields(FFTStruct):
+    _fields_ = [
+        ('_00', c_uint32),
+        ('_01', c_uint32),
+        ('_02', c_uint32),
+        ('_03', c_uint32),
+        ('_04', c_uint32),
+        ('_05', c_uint32),
+        ('_06', c_uint32),
+        ('_07', c_uint32),
+        ('_08', c_uint32),
+        ('_09', c_uint32),
+        ('_0a', c_uint32),
+        ('_0b', c_uint32),
+        ('_0c', c_uint32),
+        ('_0d', c_uint32),
+        ('_0e', c_uint32),
+        ('_0f', c_uint32),
+        ('mesh', c_uint32),
+        ('colorPals', c_uint32),
+        ('_12', c_uint32),
+        ('_13', c_uint32),
+        ('_14', c_uint32),
+        ('_15', c_uint32),
+        ('_16', c_uint32),
+        ('_17', c_uint32),
+        ('_18', c_uint32),
+        ('lights', c_uint32),
+        ('terrain', c_uint32),
+        ('texAnim', c_uint32),
+        ('palAnim', c_uint32),
+        ('_1d', c_uint32),
+        ('_1e', c_uint32),
+        ('grayPals', c_uint32),
+        ('_20', c_uint32),
+        ('_21', c_uint32),
+        ('_22', c_uint32),
+        ('meshAnimBase', c_uint32),
+        ('meshAnim0', c_uint32),
+        ('meshAnim1', c_uint32),
+        ('meshAnim2', c_uint32),
+        ('meshAnim3', c_uint32),
+        ('meshAnim4', c_uint32),
+        ('meshAnim5', c_uint32),
+        ('meshAnim6', c_uint32),
+        ('meshAnim7', c_uint32),
+        ('visAngles', c_uint32),
+        ('_2d', c_uint32),
+        ('_2e', c_uint32),
+        ('_2f', c_uint32),
+        ('_30', c_uint32),
+    ]
+assert sizeof(ResHeaderFields) == 4 * NUM_CHUNKS
+
+# can't use unions in Blender until it upgrades to python 3.11
+""" 
+class ResHeader(FFTUnion):
+    _fields_ = [
+        ('fields', ResHeaderFields),
+        ('v', (c_uint32 * NUM_CHUNKS)),
+    ]
+assert sizeof(ResHeader) == 4 * NUM_CHUNKS
+"""
+# until then ...
+class ResHeader(FFTStruct):
+    _fields_ = [
+        ('v', (c_uint32 * NUM_CHUNKS)),
+    ]
+assert sizeof(ResHeader) == 4 * NUM_CHUNKS
 
 
-################################ classes ################################
+################################ non-texture resousre classes ################################
 
 class VertexTex(object):
     def __init__(self, pos, normal, texcoord):
@@ -576,23 +724,6 @@ class QuadUntex(object):
         self.unknown = unknown
         self.visAngles = visAngles
 
-class ResourceBlob(object):
-    def __init__(self, record, filename, mapdir):
-        self.record = record
-        # extension-index:
-        self.ext = int(os.path.splitext(filename)[1][1:])
-        # after ctor, sort filenames then match with sectors, then write this.
-        self.sector = None
-        self.filename = filename
-        self.filepath = os.path.join(mapdir, filename)
-
-    # read whole file as one blob
-    def readData(self):
-        file = open(self.filepath, 'rb')
-        data = file.read()
-        file.close()
-        return data
-
 class Chunk(object):
     def __init__(self, data):
         self.data = data
@@ -611,12 +742,6 @@ class Chunk(object):
         res = cl.from_buffer_copy(self.data[self.ofs:self.ofs+sizeof(cl)])
         self.ofs += sizeof(cl)
         return res
-
-# TODO is there a way to read ctypes fixed endianness outside a struct/union?
-class VisAngleFlags(FFTStruct):
-    _fields_ = [
-        ('v', c_uint16),
-    ]
 
 class VisAngleChunk(Chunk):
     # res isn't used.  just here for ctor consistency with other chunks.
@@ -678,12 +803,6 @@ class VisAngleChunk(Chunk):
             + quadUntexVisAngles
             + self.footer
         )
-
-# forcing little-endian-ness via ctypes struct
-class UntexUnknown(FFTStruct):
-    _fields_ = [
-        ('v', c_uint32),
-    ]
 
 # writing depends on the existence of the blender mesh
 # and the blender mesh is going to have custom face attributes
@@ -1156,120 +1275,18 @@ class PalAnimChunk(Chunk):
 def countSectors(size):
     return (size >> 11) + (1 if size & ((1<<11)-1) else 0)
 
-# chunks used in maps 001 thru 119:
-# in hex: 10, 11, 13, 19, 1a, 1b, 1c, 1f, 23, 24, 25, 26, 27, 28, 29, 2a, 2b, 2c
-# missing:
-# in hex: 12, 14, 15, 16, 17, 18, 1d, 1e, 20, 21, 22
-# ... seems like the first 64 bytes are used for something else
-numChunks = 49
-
-
-# Header for non-texture resources
-# Use this over just c_uint32 * 49 because this has endian-ness support
-# Otherwise just (c_uint32 * 49) is easier to deal with (less indirections)
-# But I don't see a way to specify endian-ness in ctypes of primitives or arrays of primitives
-# Also, make this one field per uint32 (no arrays, etc) so that I can enumerate it like a uint32 array
-# I would just make a struct of the whole thing being a single field of an array, just to get little-endian-ness
-#  but meh, while here, why not name the fields too.
-class ResHeaderFields(FFTStruct):
-    _fields_ = [
-        ('_00', c_uint32),
-        ('_01', c_uint32),
-        ('_02', c_uint32),
-        ('_03', c_uint32),
-        ('_04', c_uint32),
-        ('_05', c_uint32),
-        ('_06', c_uint32),
-        ('_07', c_uint32),
-        ('_08', c_uint32),
-        ('_09', c_uint32),
-        ('_0a', c_uint32),
-        ('_0b', c_uint32),
-        ('_0c', c_uint32),
-        ('_0d', c_uint32),
-        ('_0e', c_uint32),
-        ('_0f', c_uint32),
-        ('mesh', c_uint32),
-        ('colorPals', c_uint32),
-        ('_12', c_uint32),
-        ('_13', c_uint32),
-        ('_14', c_uint32),
-        ('_15', c_uint32),
-        ('_16', c_uint32),
-        ('_17', c_uint32),
-        ('_18', c_uint32),
-        ('lights', c_uint32),
-        ('terrain', c_uint32),
-        ('texAnim', c_uint32),
-        ('palAnim', c_uint32),
-        ('_1d', c_uint32),
-        ('_1e', c_uint32),
-        ('grayPals', c_uint32),
-        ('_20', c_uint32),
-        ('_21', c_uint32),
-        ('_22', c_uint32),
-        ('meshAnimBase', c_uint32),
-        ('meshAnim0', c_uint32),
-        ('meshAnim1', c_uint32),
-        ('meshAnim2', c_uint32),
-        ('meshAnim3', c_uint32),
-        ('meshAnim4', c_uint32),
-        ('meshAnim5', c_uint32),
-        ('meshAnim6', c_uint32),
-        ('meshAnim7', c_uint32),
-        ('visAngles', c_uint32),
-    ]
-assert sizeof(ResHeaderFields) == 4 * numChunks
-
-class ResHeader(FFTUnion):
-    _fields_ = [
-        ('fields', ResHeaderFields),
-        ('v', (c_uint32 * numChunks)),
-    ]
-assert sizeof(ResHeader) == 4 * numChunks
-
 class NonTexBlob(ResourceBlob):
-    
-    CHUNK_MESH = 0x10
-    CHUNK_COLORPALS = 0x11
-    # 0x12 is unused
-    # 0x13 is only nonzero for map000.5
-    # 0x14..0x18 is unused
-    CHUNK_LIGHTS = 0x19
-    CHUNK_TERRAIN = 0x1a
-    CHUNK_TEX_ANIM = 0x1b
-    # is this rgba palettes or is it another texAnim set?
-    CHUNK_PAL_ANIM = 0x1c
-    # 0x1d is unused
-    # 0x1e is unused
-    CHUNK_GRAYPALS = 0x1f
-    # 0x20 is unused
-    # 0x21 is unused
-    # 0x22 is unused
-    # 0x23 is mesh animation info
-    # 0x24..0x2b = animated meshes 0-7
-    CHUNK_MESH_ANIM_BASE = 0x23
-    CHUNK_MESH_ANIM0 = 0x24
-    CHUNK_MESH_ANIM1 = 0x25
-    CHUNK_MESH_ANIM2 = 0x26
-    CHUNK_MESH_ANIM3 = 0x27
-    CHUNK_MESH_ANIM4 = 0x28
-    CHUNK_MESH_ANIM5 = 0x29
-    CHUNK_MESH_ANIM6 = 0x2a
-    CHUNK_MESH_ANIM7 = 0x2b
-    CHUNK_VISANGLES = 0x2c
-
     # specify which IO to use to read/associate with each chunk here
     # these can be overridden if the chunk has to do more work (ex: load Blender resources) 
     chunkIOClasses = {
-        CHUNK_MESH = MeshChunk,
-        CHUNK_COLORPALS = ColorPalChunk,
-        CHUNK_LIGHTS = LightChunk,
-        CHUNK_TERRAIN = TerrainChunk,
-        CHUNK_TEX_ANIM = TexAnimChunk,
-        #CHUNK_PAL_ANIM = PalAnimChunk,
-        CHUNK_GRAYPALS = GrayPalChunk,
-        CHUNK_VISANGLES = VisAngleChunk,
+        CHUNK_MESH : MeshChunk,
+        CHUNK_COLORPALS : ColorPalChunk,
+        CHUNK_LIGHTS : LightChunk,
+        CHUNK_TERRAIN : TerrainChunk,
+        CHUNK_TEX_ANIM : TexAnimChunk,
+        #CHUNK_PAL_ANIM : PalAnimChunk,
+        CHUNK_GRAYPALS : GrayPalChunk,
+        CHUNK_VISANGLES : VisAngleChunk,
     }
     
     def __init__(self, record, filename, mapdir, gns):
@@ -1282,12 +1299,12 @@ class NonTexBlob(ResourceBlob):
 
         self.header = ResHeader.from_buffer_copy(data)
 
-        chunks = [None] * self.numChunks
+        chunks = [None] * NUM_CHUNKS
         for i, entry in enumerate(self.header.v):
             begin = self.header.v[i]
             if begin:
                 end = None
-                for j in range(i + 1, self.numChunks):
+                for j in range(i + 1, NUM_CHUNKS):
                     if self.header.v[j]:
                         end = self.header.v[j]
                         break
@@ -1302,14 +1319,16 @@ class NonTexBlob(ResourceBlob):
         # store it in chunkIOs, but also in its respective field
         # (the outside world can reference the named fields)
         def readChunk(i):
-            nonlocal chunk
+            nonlocal chunks
             data = chunks[i]
             if data:
                 if not i in self.chunkIOClasses:
                     print("WARNING: resource has chunk "+str(i)+" but we don't have a class for reading it")
                 else:
                     cl = self.chunkIOClasses[i]
-                    return self.chunkIOs[i] = cl(data, self)
+                    io = cl(data, self)
+                    self.chunkIOs[i] = io
+                    return io
 
         self.visAngleChunk = readChunk(CHUNK_VISANGLES)     # needs to be read before meshChunk
         self.meshChunk = readChunk(CHUNK_MESH)              # needs to be read after visAngleChunk
@@ -1321,8 +1340,8 @@ class NonTexBlob(ResourceBlob):
         self.grayPalChunk = readChunk(CHUNK_GRAYPALS)
 
     def write(self):
-        chunks = [None] * self.numChunks
-        for i in range(numChunks):
+        chunks = [None] * NUM_CHUNKS
+        for i in range(NUM_CHUNKS):
             if i in self.chunkIOs:
                 io = self.chunkIOs[i]
                 if io != None:
