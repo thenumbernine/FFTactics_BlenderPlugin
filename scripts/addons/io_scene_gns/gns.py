@@ -1083,28 +1083,46 @@ class NonTexBlob(ResourceBlob):
     # ... seems like the first 64 bytes are used for something else
     numChunks = 49
 
+    CHUNK_MESH = 0x10
+    CHUNK_COLORPALS = 0x11
+    # 0x12 is unused
+    # 0x13 is only nonzero for map000.5
+    # 0x14..0x18 is unused
+    CHUNK_LIGHTS = 0x19
+    CHUNK_TERRAIN = 0x1a
+    CHUNK_TEX_ANIM = 0x1b
+    # is this rgba palettes or is it another texAnim set?
+    CHUNK_PAL_ANIM = 0x1c
+    # 0x1d is unused
+    # 0x1e is unused
+    CHUNK_GRAYPALS = 0x1f
+    # 0x20 is unused
+    # 0x21 is unused
+    # 0x22 is unused
+    # 0x23 is mesh animation info
+    # 0x24..0x2b = animated meshes 0-7
+    CHUNK_MESH_ANIM_BASE = 0x23
+    CHUNK_MESH_ANIM0 = 0x24
+    CHUNK_MESH_ANIM1 = 0x25
+    CHUNK_MESH_ANIM2 = 0x26
+    CHUNK_MESH_ANIM3 = 0x27
+    CHUNK_MESH_ANIM4 = 0x28
+    CHUNK_MESH_ANIM5 = 0x29
+    CHUNK_MESH_ANIM6 = 0x2a
+    CHUNK_MESH_ANIM7 = 0x2b
+    CHUNK_VISANGLES = 0x2c
+
     # specify which IO to use to read/associate with each chunk here
     # these can be overridden if the chunk has to do more work (ex: load Blender resources) 
     chunkIOClasses = {
-        0x10 = MeshChunk,
-        0x11 = ColorPalChunk,
-        # 0x12 is unused
-        # 0x13 is only nonzero for map000.5
-        # 0x14..0x18 is unused
-        0x19 = LightChunk,
-        0x1a = TerrainChunk,
-        0x1b = TexAnimChunk,
-        # is this rgba palettes or is it another texAnim set?
-        #0x1c = PalAnimChunk,
-        # 0x1d is unused
-        # 0x1e is unused
-        0x1f = GrayPalChunk,
-        # 0x20 is unused
-        # 0x21 is unused
-        # 0x22 is unused
-        # 0x23 is mesh animation info
-        # 0x24..0x2b = animated meshes 0-7
-        0x2c = VisAngleChunk,
+        CHUNK_MESH = MeshChunk,
+        CHUNK_COLORPALS = ColorPalChunk,
+        CHUNK_LIGHTS = LightChunk,
+        CHUNK_TERRAIN = TerrainChunk,
+        CHUNK_TEX_ANIM = TexAnimChunk,
+        #CHUNK_PAL_ANIM = PalAnimChunk,
+        CHUNK_GRAYPALS = GrayPalChunk,
+        CHUNK_VISANGLES = VisAngleChunk,
     }
     
     def __init__(self, record, filename, mapdir, gns):
@@ -1147,14 +1165,14 @@ class NonTexBlob(ResourceBlob):
                     cl = self.chunkIOClasses[i]
                     return self.chunkIOs[i] = cl(data, self)
 
-        self.visAngleChunk = readChunk(0x2c)    # needs to be read before meshChunk
-        self.meshChunk = readChunk(0x10)        # needs to be read after visAngleChunk
-        self.colorPalChunk = readChunk(0x11)
-        self.lightChunk = readChunk(0x19)       # this needs bbox if it exists, which is calculated in meshChunk's ctor
-        self.terrainChunk = readChunk(0x1a)
-        self.texAnimChunk = readChunk(0x1b)
-        self.palAnimChunk = readChunk(0x1c)
-        self.grayPalChunk = readChunk(0x1f)
+        self.visAngleChunk = readChunk(CHUNK_VISANGLES)    # needs to be read before meshChunk
+        self.meshChunk = readChunk(CHUNK_MESH)        # needs to be read after visAngleChunk
+        self.colorPalChunk = readChunk(CHUNK_COLORPALS)
+        self.lightChunk = readChunk(CHUNK_LIGHTS)       # this needs bbox if it exists, which is calculated in meshChunk's ctor
+        self.terrainChunk = readChunk(CHUNK_TERRAIN)
+        self.texAnimChunk = readChunk(CHUNK_TEX_ANIM)
+        self.palAnimChunk = readChunk(CHUNK_PAL_ANIM)
+        self.grayPalChunk = readChunk(CHUNK_GRAYPALS)
 
     def write(self):
         chunks = [None] * self.numChunks
