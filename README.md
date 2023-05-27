@@ -51,6 +51,7 @@ Each collection also contains a light representing the map ambient light.  It's 
 The background is imported as a sphere around the map, with gradient material.
 
 TODO:
+- include tile field 0x5: thickness.
 - animated meshes
 - animated palettes
 - animated ... ? lights? idk.

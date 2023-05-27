@@ -226,13 +226,13 @@ class BlenderLightChunk(gns.LightChunk):
 
         self.bgmeshObj = bgmeshObj
 
-class BlenderTerrainChunk(gns.TerrainChunk):
+class BlenderTileChunk(gns.TileChunk):
     def __init__(self, data, res):
         super().__init__(data, res)
 
-        ### create the terrain
+        ### create the tiles
 
-        def makeTerrainObjForLayer(y):
+        def makeObjForTileLayer(y):
             nonlocal res
             # vertexes of a [-.5, .5]^2 quad
             quadVtxs = [
@@ -252,9 +252,9 @@ class BlenderTerrainChunk(gns.TerrainChunk):
             vtxs = []
             faces = []
             tilesFlattened = []
-            for z in range(self.terrainSize[1]):
-                for x in range(self.terrainSize[0]):
-                    tile = self.terrainTiles[y][z][x]
+            for z in range(self.sizeInTiles[1]):
+                for x in range(self.sizeInTiles[0]):
+                    tile = self.tiles[y][z][x]
                     vi = len(vtxs)
                     faces.append([vi+0, vi+1, vi+2, vi+3])
                     for (i, q) in enumerate(quadVtxs):
@@ -264,11 +264,11 @@ class BlenderTerrainChunk(gns.TerrainChunk):
                             z + .5 + q[1]
                         ))
                     tilesFlattened.append(tile)
-            mesh = bpy.data.meshes.new(res.filename + ' Terrain'+str(y))
-            mesh.materials.append(res.gns.terrainMat)
+            mesh = bpy.data.meshes.new(res.filename + ' Tiles '+str(y))
+            mesh.materials.append(res.gns.tileMat)
             mesh.from_pydata(vtxs, [], faces)
-            terrainMeshObj = bpy.data.objects.new(mesh.name, mesh)
-            terrainMeshObj.hide_render = True
+            tileMeshObj = bpy.data.objects.new(mesh.name, mesh)
+            tileMeshObj.hide_render = True
 
             tagNames = [
                 'surfaceType',
@@ -276,26 +276,26 @@ class BlenderTerrainChunk(gns.TerrainChunk):
                 'cantCursor',
                 'cantWalk',
                 'rotFlags',
+                'thickness',
                 'unk0_6',
                 'unk1',
-                'unk5',
                 'unk6_2'
                 # TODO visAngles
-                # via terrain mesh
+                # these are/will be modifyable via tile mesh:
                 #'halfHeight',
                 #'slopeHeight',
                 #'slopeType',
             ]
 
-            # custom per-face attributes for the terrain:
+            # custom per-face attributes for the tiles:
             # doI have to do this once at all, or once per mesh?
             # https://blender.stackexchange.com/questions/4964/setting-additional-properties-per-face
             import bmesh
             bm = bmesh.new()
             if bpy.context.mode == 'EDIT_MESH':
-                bm.from_edit_mesh(terrainMeshObj.data)
+                bm.from_edit_mesh(tileMeshObj.data)
             else:
-                bm.from_mesh(terrainMeshObj.data)
+                bm.from_mesh(tileMeshObj.data)
             tags = {}
             for name in tagNames:
                 tags[name] = bm.faces.layers.int.new(name)
@@ -308,16 +308,16 @@ class BlenderTerrainChunk(gns.TerrainChunk):
                 for name in tagNames:
                     bm.faces[i][tags[name]] = getattr(tile, name)
             if bpy.context.mode == 'EDIT_MESH':
-                bm.updated_edit_mesh(terrainMeshObj.data)
+                bm.updated_edit_mesh(tileMeshObj.data)
             else:
-                bm.to_mesh(terrainMeshObj.data)
+                bm.to_mesh(tileMeshObj.data)
             bm.free()
 
-            return terrainMeshObj
+            return tileMeshObj
 
-        self.terrainMeshObjs = []
+        self.tileMeshObjs = []
         for y in range(2):
-            self.terrainMeshObjs.append(makeTerrainObjForLayer(y))
+            self.tileMeshObjs.append(makeObjForTileLayer(y))
 
 
 class BlenderNonTexBlob(gns.NonTexBlob):
@@ -325,7 +325,7 @@ class BlenderNonTexBlob(gns.NonTexBlob):
         gns.CHUNK_MESH : gns.MeshChunk,
         gns.CHUNK_COLORPALS : BlenderColorPalChunk,
         gns.CHUNK_LIGHTS : BlenderLightChunk,
-        gns.CHUNK_TERRAIN : BlenderTerrainChunk,
+        gns.CHUNK_TILES : BlenderTileChunk,
         gns.CHUNK_TEX_ANIM : gns.TexAnimChunk,
         #gns.CHUNK_PAL_ANIM : gns.PalAnimChunk,
         gns.CHUNK_GRAYPALS : BlenderGrayPalChunk,
@@ -386,18 +386,18 @@ class BlenderGNS(gns.GNS):
 
     # create blender nodes used by everything
     def loadCommon(self):
-        # create the terrain material
+        # create the tile material
         # TODO this can be shared with everything
 
-        terrainMat = bpy.data.materials.new('Terrain Mat')
-        terrainMatWrap = node_shader_utils.PrincipledBSDFWrapper(terrainMat, is_readonly=False)
-        terrainMatWrap.ior = 1
-        terrainMatWrap.alpha = .5
-        terrainMatWrap.use_nodes = True
-        terrainMat.blend_method = 'BLEND'
+        tileMat = bpy.data.materials.new('Tile Mat')
+        tileMatWrap = node_shader_utils.PrincipledBSDFWrapper(tileMat, is_readonly=False)
+        tileMatWrap.ior = 1
+        tileMatWrap.alpha = .5
+        tileMatWrap.use_nodes = True
+        tileMat.blend_method = 'BLEND'
 
-        bsdf = terrainMat.node_tree.nodes['Principled BSDF']
-        brickTexNode = terrainMat.node_tree.nodes.new('ShaderNodeTexBrick')
+        bsdf = tileMat.node_tree.nodes['Principled BSDF']
+        brickTexNode = tileMat.node_tree.nodes.new('ShaderNodeTexBrick')
         brickTexNode.location = (-200, 0)
         brickTexNode.offset = 0
         brickTexNode.offset_frequency = 1
@@ -412,13 +412,13 @@ class BlenderGNS(gns.GNS):
         brickTexNode.inputs['Bias'].default_value = 1
         brickTexNode.inputs['Brick Width'].default_value = 1
         brickTexNode.inputs['Row Height'].default_value = 1
-        terrainMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs['Color'])
+        tileMat.node_tree.links.new(bsdf.inputs['Base Color'], brickTexNode.outputs['Color'])
 
-        terrainGeomNode = terrainMat.node_tree.nodes.new('ShaderNodeNewGeometry')
-        terrainGeomNode.location = (-400, 0)
-        terrainMat.node_tree.links.new(brickTexNode.inputs['Vector'], terrainGeomNode.outputs['Position'])
+        tileGeomNode = tileMat.node_tree.nodes.new('ShaderNodeNewGeometry')
+        tileGeomNode.location = (-400, 0)
+        tileMat.node_tree.links.new(brickTexNode.inputs['Vector'], tileGeomNode.outputs['Position'])
 
-        self.terrainMat = terrainMat
+        self.tileMat = tileMat
 
     def setMapState(self, mapState):
         super().setMapState(mapState)
@@ -633,13 +633,13 @@ class BlenderGNS(gns.GNS):
         meshObj.scale = 1./28., 1./24., 1./28.
         newObjects.append(meshObj)
 
-        if hasattr(self, 'terrainChunk'):
-            for terrainMeshObj in self.terrainChunk.terrainMeshObjs:
-                terrainMeshObj.matrix_world = global_matrix
+        if hasattr(self, 'tileChunk'):
+            for tileMeshObj in self.tileChunk.tileMeshObjs:
+                tileMeshObj.matrix_world = global_matrix
                 # once again, is this applied before or after matrix_world? before or after view_later.update() ?
                 # looks like it is in blender coordinates, i.e. z-up
-                terrainMeshObj.location = 0, 0, .01
-                newObjects.append(terrainMeshObj)
+                tileMeshObj.location = 0, 0, .01
+                newObjects.append(tileMeshObj)
 
         if hasattr(self, 'lightChunk'):
             for obj in self.lightChunk.dirLightObjs:

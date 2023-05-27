@@ -8,8 +8,13 @@ class FFTData:
     def toTuple(self):
         return tuple(getattr(self, x[0]) for x in self._fields_)
 
+    # override this to change serialization
+    @staticmethod
+    def intToStr(x):
+        return str(x)#f'{x:d}'
+
     def __str__(self):
-        return '{'+', '.join(x[0]+'='+str(getattr(self, x[0])) for x in self._fields_)+'}'
+        return '{'+', '.join(x[0]+'='+FFTData.intToStr(getattr(self, x[0])) for x in self._fields_)+'}'
 
 """ hmm 'new in 3.11' looks like Blender (python 3.10.9) needs to upgrade?
 class FFTUnion(LittleEndianUnion, FFTData):
@@ -38,6 +43,9 @@ class ResourceBlob(object):
         file.close()
         return data
 
+class UnknownBlob(ResourceBlob):
+    def __init__(self, record, filename, mapdir):
+        super().__init__(record, filename, mapdir)
 
 ################################ texture resousre files ################################
 
@@ -256,20 +264,29 @@ and then 4 more ... only 1 needed for tesselation edge orientation
 or maybe it's each vertex has 3 states?  cuz i'm seeing bit groupings by 4 sets of 2 bits, and none of the 2 bits are 11
 
 '''
-class TerrainTile(FFTStruct):
+class Tile(FFTStruct):
     _fields_ = [
+        # 00:
         ('surfaceType', c_uint8, 6),
         ('unk0_6', c_uint8, 2),
+        # 01:
         ('unk1', c_uint8),
+        # 02:
         ('halfHeight', c_uint8),    # in half-tiles
+        # 03:
         ('slopeHeight', c_uint8, 5),
         ('depth', c_uint8, 3),      # in half-tiles too?
+        # 04:
         ('slopeType', c_uint8),
-        ('unk5', c_uint8),
+        # 05:
+        # TODO include this
+        ('thickness', c_uint8),
+        # 06:
         ('cantCursor', c_uint8, 1),
         ('cantWalk', c_uint8, 1),
         ('unk6_2', c_uint8, 6),
 
+        # 07:
         # bits vs rotation flags:
         # 0 = ne bottom
         # 1 = se bottom
@@ -281,7 +298,7 @@ class TerrainTile(FFTStruct):
         # 7 = nw top
         ('rotFlags', c_uint8),
     ]
-assert sizeof(TerrainTile) == 8
+assert sizeof(Tile) == 8
 
 # can python ctypes do arrays-of-bitfields?
 # ... can C structs? nope?
@@ -389,7 +406,7 @@ CHUNK_COLORPALS = 0x11
 # 0x13 is only nonzero for map000.5
 # 0x14..0x18 is unused
 CHUNK_LIGHTS = 0x19
-CHUNK_TERRAIN = 0x1a
+CHUNK_TILES = 0x1a
 CHUNK_TEX_ANIM = 0x1b
 # is this rgba palettes or is it another texAnim set?
 CHUNK_PAL_ANIM = 0x1c
@@ -447,7 +464,7 @@ class ResHeaderFields(FFTStruct):
         ('_17', c_uint32),
         ('_18', c_uint32),
         ('lights', c_uint32),
-        ('terrain', c_uint32),
+        ('tile', c_uint32),
         ('texAnim', c_uint32),
         ('palAnim', c_uint32),
         ('_1d', c_uint32),
@@ -492,13 +509,46 @@ assert sizeof(ResHeader) == 4 * NUM_CHUNKS
 
 ################################ non-texture resousre classes ################################
 
-class VertexTex(object):
+# very very very specific to the cmdline text outputter
+#  still is a mess
+class ToStr:
+    @staticmethod
+    def listToStr(o):
+        s = []
+        allPrim = True
+        for v in o:
+            allPrim &= isinstance(v, (int, str, bool))
+            s.append(ToStr.toStr(v))
+        sep=',\n'
+        if allPrim:
+            sep = ', '
+        return '[\n'+sep.join(s)+'\n]'
+
+    @staticmethod
+    def toStr(o):
+        if hasattr(o, '__iter__'):
+            return ToStr.listToStr(o)
+        # still can't figure out how to detect if an object is a ctype array, since it isn't iterable ...
+        elif hasattr(o, '_length_') and hasattr(o, '_type_'):
+            return ToStr.listToStr(list(o))
+        else:
+            return str(o)
+
+    def __str__(self):
+        s = []
+        for (k, v) in vars(self).items():
+            if k != 'data' and k != 'ofs':
+                s.append(k+'='+ToStr.toStr(v))
+        sep = ', '
+        return '{'+sep.join(s)+'}'
+
+class VertexTex(ToStr):
     def __init__(self, pos, normal, texcoord):
         self.pos = pos
         self.normal = normal
         self.texcoord = texcoord
 
-class TriTex(object):
+class TriTex(ToStr):
     isTri = True
     isTex = True
     def __init__(self, points, normals, texFace, tilePos, visAngles):
@@ -511,7 +561,7 @@ class TriTex(object):
         self.tilePos = tilePos
         self.visAngles = visAngles
 
-class QuadTex(object):
+class QuadTex(ToStr):
     isTri = False
     isTex = True
     def __init__(self, points, normals, texFace, tilePos, visAngles):
@@ -525,12 +575,11 @@ class QuadTex(object):
         self.tilePos = tilePos
         self.visAngles = visAngles
 
-
-class VertexUntex(object):
+class VertexUntex(ToStr):
     def __init__(self, pos):
         self.pos = pos
 
-class TriUntex(object):
+class TriUntex(ToStr):
     isTri = True
     isTex = False
     def __init__(self, points, unknown, visAngles):
@@ -542,7 +591,7 @@ class TriUntex(object):
         self.unknown = unknown
         self.visAngles = visAngles
 
-class QuadUntex(object):
+class QuadUntex(ToStr):
     isTri = False
     isTex = False
     def __init__(self, points, unknown, visAngles):
@@ -555,7 +604,7 @@ class QuadUntex(object):
         self.unknown = unknown
         self.visAngles = visAngles
 
-class Chunk(object):
+class Chunk(ToStr):
     def __init__(self, data):
         self.data = data
         self.ofs = 0
@@ -672,8 +721,8 @@ class MeshChunk(Chunk):
         #print('self.triUntexUnknowns', list(self.triUntexUnknowns))
         #print('self.quadUntexUnknowns', list(self.quadUntexUnknowns))
 
-        self.triTexTilePos = self.read(TilePos * self.hdr.numTriTex) # then comes terrain info 2 bytes per tex-tri
-        self.quadTexTilePos = self.read(TilePos * self.hdr.numQuadTex) # then comes terrain info 2 bytes per tex-quad
+        self.triTexTilePos = self.read(TilePos * self.hdr.numTriTex) # then comes tile info 2 bytes per tex-tri
+        self.quadTexTilePos = self.read(TilePos * self.hdr.numQuadTex) # then comes tile info 2 bytes per tex-quad
         # and that's it from chunk 0x10
 
         # now for aux calcs
@@ -793,39 +842,39 @@ class LightChunk(Chunk):
             + self.footer
         )
 
-class TerrainChunk(Chunk):
+class TileChunk(Chunk):
     def __init__(self, data, res):
         super().__init__(data)
         # reading chunk 0x1a
-        self.terrainSize = self.read(c_uint8 * 2)  # (sizeX, sizeZ)
+        self.sizeInTiles = self.read(c_uint8 * 2)  # (sizeX, sizeZ)
         # weird, it leaves room for 256 total tiles for the first xz plane, and then the second is packed?
-        terrainTileSrc = self.read(TerrainTile * (256 + self.terrainSize[0] * self.terrainSize[1]))
+        tileSrc = self.read(Tile * (256 + self.sizeInTiles[0] * self.sizeInTiles[1]))
         self.footer = self.readBytes()
         # done reading chunk 0x1a
 
-        # convert the terrainTiles from [z * terrainSize[0] + x] w/padding for y to [y][z][x]
-        self.terrainTiles = []
+        # convert the tiles from [z * sizeInTiles[0] + x] w/padding for y to [y][z][x]
+        self.tiles = []
         for y in range(2):
             level = []
-            for z in range(self.terrainSize[1]):
+            for z in range(self.sizeInTiles[1]):
                 row = []
-                for x in range(self.terrainSize[0]):
-                    row.append(terrainTileSrc[256 * y + z * self.terrainSize[0] + x])
+                for x in range(self.sizeInTiles[0]):
+                    row.append(tileSrc[256 * y + z * self.sizeInTiles[0] + x])
                 level.append(row)
-            self.terrainTiles.append(level)
+            self.tiles.append(level)
 
     def toBin(self):
         # TODO read this back from the blender mesh
-        assert len(self.terrainTiles) == 2
-        self.terrainSize[0] = len(self.terrainTiles.tiles[0][0])
-        self.terrainSize[1] = len(self.terrainTiles.tiles[0])
-        data = bytes(self.terrainSize)
-        for level in self.terrainTiles:
+        assert len(self.tiles) == 2
+        self.sizeInTiles[0] = len(self.tiles[0][0])
+        self.sizeInTiles[1] = len(self.tiles[0])
+        data = bytes(self.sizeInTiles)
+        for level in self.tiles:
             for row in level:
                 for tile in row:
                     data += bytes(tile)
-            # Skip to second level of terrain data
-            data += b'\0' * (sizeof(TerrainTile) * (256 - sizeX * sizeZ))
+            # Skip to second level of tile data
+            data += b'\0' * (sizeof(Tile) * (256 - sizeX * sizeZ))
         data += self.footer
         return data
 
@@ -864,7 +913,7 @@ class NonTexBlob(ResourceBlob):
         CHUNK_MESH : MeshChunk,
         CHUNK_COLORPALS : ColorPalChunk,
         CHUNK_LIGHTS : LightChunk,
-        CHUNK_TERRAIN : TerrainChunk,
+        CHUNK_TILES : TileChunk,
         CHUNK_TEX_ANIM : TexAnimChunk,
         #CHUNK_PAL_ANIM : PalAnimChunk,
         CHUNK_GRAYPALS : GrayPalChunk,
@@ -895,7 +944,7 @@ class NonTexBlob(ResourceBlob):
                 chunks[i] = data[begin:end]
 
         # each chunk's IO
-        self.chunkIOs = {}
+        self.chunkIOs = [None] * NUM_CHUNKS
 
         # if the chunk was in the header, read it with its respective class
         # store it in chunkIOs, but also in its respective field
@@ -905,7 +954,7 @@ class NonTexBlob(ResourceBlob):
             data = chunks[i]
             if data:
                 if not i in self.chunkIOClasses:
-                    print("WARNING: resource has chunk "+str(i)+" but we don't have a class for reading it")
+                    print("WARNING: resource has chunk "+str(i)+" but I don't have a class for reading it")
                 else:
                     cl = self.chunkIOClasses[i]
                     io = cl(data, self)
@@ -916,7 +965,7 @@ class NonTexBlob(ResourceBlob):
         self.meshChunk = readChunk(CHUNK_MESH)              # needs to be read after visAngleChunk
         self.colorPalChunk = readChunk(CHUNK_COLORPALS)
         self.lightChunk = readChunk(CHUNK_LIGHTS)           # this needs bbox if it exists, which is calculated in meshChunk's ctor
-        self.terrainChunk = readChunk(CHUNK_TERRAIN)
+        self.tileChunk = readChunk(CHUNK_TILES)
         self.texAnimChunk = readChunk(CHUNK_TEX_ANIM)
         self.palAnimChunk = readChunk(CHUNK_PAL_ANIM)
         self.grayPalChunk = readChunk(CHUNK_GRAYPALS)
@@ -924,8 +973,7 @@ class NonTexBlob(ResourceBlob):
     def write(self):
         chunks = [None] * NUM_CHUNKS
         for i in range(NUM_CHUNKS):
-            if i in self.chunkIOs:
-                io = self.chunkIOs[i]
+            if (i, io) in enumerate(self.chunkIOs):
                 if io != None:
                     chunks[i] = io.toBin()
 
@@ -966,8 +1014,8 @@ class GNSRecord(FFTStruct):
         # 'arrangement' eh?  'config' ?
         ('arrangement', c_uint8),
 
-        # for map002 it's always 0
-        ('unknown3', c_uint8, 4),
+        # always 0 on all maps
+        ('_03', c_uint8, 4),
 
         # how bright<->dark is the map
         # 0 = brightest
@@ -988,6 +1036,8 @@ class GNSRecord(FFTStruct):
         # 0x2f = replacement mesh
         # 0x30 = alternative mesh
         # 0x31 = EOF (and the struct might be truncated after 8 bytes)
+        #
+        # ... I don't see where these appear in the wild:
         # 0x80 0x85 0x86 0x87 0x88 = also listed in GaneshaDx
         ('resourceType', c_uint8),
 
@@ -995,8 +1045,8 @@ class GNSRecord(FFTStruct):
         # do I really need to break these into two separate reads?
         # I think GaneshaDx puts a threshold of 20 bytes ... meaning we shoudl always be able to access both structs...
 
-        # for map002 it's always 0x3333
-        ('unknown6', c_uint16),
+        # always 0x3333
+        ('_06', c_uint16),
 
         # disk sector
         ('sector', c_uint32),
@@ -1006,8 +1056,8 @@ class GNSRecord(FFTStruct):
         # but is there a relation between the file ext no? both are sequential in same order.  neither are 1:1 with indexes
         ('size', c_uint32),
 
-        # for map002 always 0x88776655
-        ('unknownA', c_uint32),
+        # always 0x88776655
+        ('_0a', c_uint32),
     ]
 
     # return the tuple of arrangement, isNight, weather which are used to uniquely identify ... bleh
@@ -1022,7 +1072,7 @@ class GNSRecord(FFTStruct):
     RESOURCE_MESH_INIT = 0x2e # Always used with (0x22, 0, 0, 0). Always a big file.
 
     # ... this is the override
-    # screenshot from ... ? shows RESOURCE_REPL with prim mesh, pal, lights, terrain, tex.anim., and pal.anim.
+    # screenshot from ... ? shows RESOURCE_REPL with prim mesh, pal, lights, tiles, tex.anim., and pal.anim.
     RESOURCE_MESH_REPL = 0x2f # Always used with (0x30, 0, 0, 0). Usually a big file.
 
     # this is just pal and lights
@@ -1098,7 +1148,7 @@ class GNS(object):
             self.filenameForSector[sector] = resFn
 
         #print(allSectors)
-        #print(allRes)
+        #print(allResFilenames)
 
         # enumerate unique (arrangement,night,weather) tuples
         # sort them too, so the first one is our (0,0,0) initial state
@@ -1111,17 +1161,20 @@ class GNS(object):
         # now, here, per resource file, load *everything* you can
         # I'm gonna put everything inside blender first and then sort it out per-scene later
 
+        self.allRes = []
         self.allTexRes = []
         self.allMeshRes = []
         for (i, r) in enumerate(self.allRecords):
-            print('record', self.filenameForSector[r.sector], str(r), end='')
+            #print('record', self.filenameForSector[r.sector], str(r), end='')
+            res = None
             if r.resourceType == r.RESOURCE_TEXTURE:
-                print('...tex')
-                self.allTexRes.append(self.TexBlob(
+                #print('...tex')
+                res = self.TexBlob(
                     r,
                     self.filenameForSector[r.sector],
                     self.mapdir
-                ))
+                )
+                self.allTexRes.append(res)
             elif (r.resourceType == r.RESOURCE_MESH_INIT
                 or r.resourceType == r.RESOURCE_MESH_REPL
                 or r.resourceType == r.RESOURCE_MESH_ALT):
@@ -1131,9 +1184,13 @@ class GNS(object):
                     self.mapdir,
                     self
                 )
-                print('...res w/chunks '+str([i for i, e in enumerate(res.header.v) if e != 0]))
+                #print('...res w/chunks '+str([i for i, e in enumerate(res.header.v) if e != 0]))
                 self.allMeshRes.append(res)
+            else:
+                res = self.UnknownBlob(r, self.filenameForSector[r.sector], self.mapdir, self)
+            self.allRes.append(res)
             # else keep it anywhere?
+        assert len(self.allRes) == len(self.allRecords)
 
     def setMapState(self, mapState):
         """
@@ -1211,7 +1268,7 @@ class GNS(object):
             'colorPalChunk',
             'grayPalChunk',
             'lightChunk',
-            'terrainChunk'
+            'tileChunk'
         ]:
             setResField(field)
  
