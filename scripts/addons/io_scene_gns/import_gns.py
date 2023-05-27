@@ -333,7 +333,7 @@ class BlenderNonTexBlob(gns.NonTexBlob):
     }
 
 # this class has become a GNS wrapper + collection of all mapstates
-class Map(object):
+class BlenderGNS(gns.GNS):
     def __init__(self,
         filepath,
         progress,
@@ -343,12 +343,9 @@ class Map(object):
         global_scale_z,
         global_matrix
     ):
-        progress.enter_substeps(1, "Importing GNS %r..." % filepath)
+        super().__init__(filepath)
 
-        self.filepath = filepath
-        self.mapdir = os.path.dirname(filepath)
-        self.filename = os.path.basename(filepath)
-        self.nameroot = os.path.splitext(self.filename)[0]
+        progress.enter_substeps(1, "Importing GNS %r..." % filepath)
 
         self.loadCommon()
 
@@ -362,7 +359,7 @@ class Map(object):
             return
 
         self.collections = []
-        for (i, mapState) in enumerate(self.gns.allMapStates):
+        for (i, mapState) in enumerate(self.allMapStates):
             self.setMapState(mapState)
             mapConfigIndex, dayNight, weather = mapState
             collectionName = (self.nameroot
@@ -392,9 +389,9 @@ class Map(object):
 
 
     def readGNS(self):
-        self.gns = gns.GNS(self.filepath)
+        super().readGNS()
 
-        if len(self.gns.allMapStates) == 0:
+        if len(self.allMapStates) == 0:
             raise Exception("sorry there's no map states for this map...")
 
         # now, here, per resource file, load *everything* you can
@@ -402,13 +399,13 @@ class Map(object):
 
         self.allTexRes = []
         self.allMeshRes = []
-        for (i, r) in enumerate(self.gns.allRecords):
-            print('record', self.gns.filenameForSector[r.sector], str(r), end='')
+        for (i, r) in enumerate(self.allRecords):
+            print('record', self.filenameForSector[r.sector], str(r), end='')
             if r.resourceType == r.RESOURCE_TEXTURE:
                 print('...tex')
                 self.allTexRes.append(BlenderTexBlob(
                     r,
-                    self.gns.filenameForSector[r.sector],
+                    self.filenameForSector[r.sector],
                     self.mapdir
                 ))
             elif (r.resourceType == r.RESOURCE_MESH_INIT
@@ -416,7 +413,7 @@ class Map(object):
                 or r.resourceType == r.RESOURCE_MESH_ALT):
                 res = BlenderNonTexBlob(
                     r,
-                    self.gns.filenameForSector[r.sector],
+                    self.filenameForSector[r.sector],
                     self.mapdir,
                     self
                 )
@@ -489,8 +486,8 @@ class Map(object):
         # now pick one ...
         # or somehow let the user decide which one to pick?
         #mapState = (mapConfigIndex, dayNight, weather)
-        #mapState = self.gns.allMapStates[0]
-        #mapState = self.gns.allMapStates[1]
+        #mapState = self.allMapStates[0]
+        #mapState = self.allMapStates[1]
         #mapState = (1,1,4)
         # are all configurations defined for all maps?
         # TODO
@@ -825,7 +822,7 @@ def load(context,
             for i in range(1,126):
                 fn = os.path.join(mapdir, f'MAP{i:03d}.GNS')
                 print('Loading', fn)
-                Map(fn, progress, None, None, None, None, None)
+                BlenderGNS(fn, progress, None, None, None, None, None)
             print("DONE")
             raise "raise"
         """
@@ -836,8 +833,8 @@ def load(context,
         background.inputs[0].default_value = (1, 1, 1, 1)
         background.inputs[1].default_value = 1
 
-        # load map
-        m = Map(
+        # load gns file
+        m = BlenderGNS(
             filepath,
             progress,
             context,

@@ -115,12 +115,15 @@ assert sizeof(GNSRecord) == 20
 # sort out which files are texture vs non-texture resources
 class GNS(object):
     def __init__(self, filepath):
-        mapdir = os.path.dirname(filepath)
-        filename = os.path.basename(filepath)
-        nameroot = os.path.splitext(filename)[0]
+        self.filepath = filepath
+        self.mapdir = os.path.dirname(filepath)
+        self.filename = os.path.basename(filepath)
+        self.nameroot = os.path.splitext(self.filename)[0]
 
         print(filepath, os.path.getsize(filepath))
-        file = open(filepath, 'rb')
+
+    def readGNS(self):
+        file = open(self.filepath, 'rb')
         self.allRecords = []
         while True:
             #def readStruct(file, struct):
@@ -146,8 +149,8 @@ class GNS(object):
 
         # get all files in the same dir with matching prefix ...
         allResFilenames = []
-        for fn in os.listdir(mapdir):
-            if fn != filename and os.path.splitext(fn)[0] == nameroot:
+        for fn in os.listdir(self.mapdir):
+            if fn != self.filename and os.path.splitext(fn)[0] == self.nameroot:
                 allResFilenames.append(fn)
 
         # sort by filename suffix
