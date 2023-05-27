@@ -78,6 +78,10 @@ def processDir(dirpath):
 
 if args.dir:
     processDir(args.dir)
+elif len(args.files) == 0:
+    # allow files to be empty so long as dir is provided
+    # but if both are empty, print help
+    ap.print_help()
 else:
     for fn in args.files:
         if os.path.isdir(fn):
